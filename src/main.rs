@@ -9,6 +9,7 @@ mod paths;
 mod plugin;
 mod render;
 mod types;
+mod update;
 mod widgets;
 
 use config::StatuslineConfig;
@@ -53,6 +54,11 @@ enum Cli {
         /// Plugin name to remove
         name: String,
     },
+    /// Update soffit to the latest version
+    Update,
+    /// Fetch latest soffit version from GitHub (hidden, used internally)
+    #[command(hide = true)]
+    FetchSelfVersion,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -75,7 +81,30 @@ fn main() -> anyhow::Result<()> {
         Cli::RefreshCost { sid } => refresh_cost(&sid),
         Cli::Install { source, force } => install::run(&source, force),
         Cli::Uninstall { name } => plugin::delete_plugin(&name),
+        Cli::Update => update::run(),
+        Cli::FetchSelfVersion => fetch_self_version(),
     }
+}
+
+fn fetch_self_version() -> anyhow::Result<()> {
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s",
+            "--max-time",
+            "5",
+            "https://api.github.com/repos/noxcraftdev/soffit/releases/latest",
+        ])
+        .output()?;
+    if output.status.success() {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+            if let Some(tag) = v.get("tag_name").and_then(|v| v.as_str()) {
+                let ver = tag.strip_prefix('v').unwrap_or(tag);
+                cache::write_cache(paths::self_version_cache(), ver);
+            }
+        }
+    }
+    let _ = std::fs::remove_file(paths::self_version_lock());
+    Ok(())
 }
 
 fn fetch_version() -> anyhow::Result<()> {
