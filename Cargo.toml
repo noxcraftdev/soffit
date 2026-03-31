@@ -1,0 +1,33 @@
+[package]
+name = "soffit"
+version = "0.0.1"
+edition = "2021"
+description = "Customizable statusline manager for Claude Code with desktop editor and plugin system"
+license = "MIT"
+repository = "https://github.com/noxcraftdev/soffit"
+keywords = ["statusline", "claude-code", "terminal", "widgets", "cli"]
+categories = ["command-line-utilities"]
+readme = "README.md"
+homepage = "https://github.com/noxcraftdev/soffit"
+documentation = "https://docs.rs/soffit"
+authors = ["Nox Craft"]
+
+[[bin]]
+name = "soffit"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dirs = "6"
+dioxus = { version = "0.6", features = ["desktop"] }
+libc = "0.2"
+regex = "1"
+rfd = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"

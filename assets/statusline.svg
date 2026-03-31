@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="611" height="120" viewBox="0 0 611 120">
+  <defs>
+    <style>
+      text { font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace; font-size: 13px; }
+    </style>
+  </defs>
+  <rect width="611" height="120" rx="10" fill="#1e1e2e"/>
+  <rect width="611" height="40" rx="10" fill="#313244"/>
+  <rect y="30" width="611" height="10" fill="#313244"/>
+  <circle cx="22" cy="20" r="7" fill="#f38ba8" opacity="0.9"/>
+  <circle cx="44" cy="20" r="7" fill="#f9e2af" opacity="0.9"/>
+  <circle cx="66" cy="20" r="7" fill="#a6e3a1" opacity="0.9"/>
+  <text x="305" y="25" text-anchor="middle" fill="#6c7086" font-size="13">soffit</text>
+  <text x="20.0" y="75" fill="#ff9933">󰁇 </text>
+  <text x="36.8" y="75" fill="#6c6c6c">1.0.27</text>
+  <text x="87.2" y="75" fill="#cc99ff">claude-sonnet-4-6</text>
+  <text x="230.0" y="75" fill="#cdd6f4"> </text>
+  <text x="238.4" y="75" fill="#6c6c6c">|</text>
+  <text x="246.8" y="75" fill="#cdd6f4"> </text>
+  <text x="255.2" y="75" fill="#336633">■</text>
+  <text x="263.6" y="75" fill="#336633">■</text>
+  <text x="272.0" y="75" fill="#66cc66">■</text>
+  <text x="280.4" y="75" fill="#66cc66">■</text>
+  <text x="288.8" y="75" fill="#993300">■</text>
+  <text x="297.2" y="75" fill="#993300">◧</text>
+  <text x="305.6" y="75" fill="#6c6c6c">□</text>
+  <text x="314.0" y="75" fill="#6c6c6c">□</text>
+  <text x="322.4" y="75" fill="#6c6c6c">□</text>
+  <text x="330.8" y="75" fill="#6c6c6c">□</text>
+  <text x="339.2" y="75" fill="#6c6c6c">□</text>
+  <text x="347.6" y="75" fill="#6c6c6c">□</text>
+  <text x="356.0" y="75" fill="#cdd6f4"> </text>
+  <text x="364.4" y="75" fill="#ff9933">🯴🯲٪</text>
+  <text x="389.6" y="75" fill="#cdd6f4"> </text>
+  <text x="398.0" y="75" fill="#6c6c6c">0/?</text>
+  <text x="423.2" y="75" fill="#cdd6f4"> </text>
+  <text x="431.6" y="75" fill="#6c6c6c">|</text>
+  <text x="440.0" y="75" fill="#cdd6f4"> </text>
+  <text x="448.4" y="75" fill="#bcbcbc">󰅐 1h20m</text>
+  <text x="507.2" y="75" fill="#cdd6f4"> </text>
+  <text x="515.6" y="75" fill="#6c6c6c">|</text>
+  <text x="524.0" y="75" fill="#cdd6f4"> 󰇁 </text>
+  <text x="549.2" y="75" fill="#6c6c6c">$1.42</text>
+  <text x="20.0" y="99" fill="#bcbcbc">󰘬 main</text>
+  <text x="70.4" y="99" fill="#cdd6f4"> </text>
+  <text x="78.8" y="99" fill="#6699ff">soffit</text>
+  <text x="129.2" y="99" fill="#cdd6f4"> </text>
+  <text x="137.6" y="99" fill="#6c6c6c">|</text>
+  <text x="146.0" y="99" fill="#cdd6f4"> </text>
+  <text x="154.4" y="99" fill="#cc99ff"> NORMAL</text>
+  <text x="221.6" y="99" fill="#cdd6f4"> </text>
+  <text x="230.0" y="99" fill="#6c6c6c">|</text>
+  <text x="238.4" y="99" fill="#cdd6f4"> </text>
+  <text x="246.8" y="99" fill="#6c6c6c"> a1b</text>
+</svg>
+
