@@ -1,0 +1,17 @@
+pub const GREEN: &str = "\x1b[38;5;114m";
+pub const ORANGE: &str = "\x1b[38;5;215m";
+pub const RED: &str = "\x1b[38;5;203m";
+pub const DIM: &str = "\x1b[38;5;242m";
+pub const LGRAY: &str = "\x1b[38;5;250m";
+pub const CYAN: &str = "\x1b[38;5;111m";
+pub const PURPLE: &str = "\x1b[38;5;183m";
+pub const YELLOW: &str = "\x1b[38;5;228m";
+pub const RESET: &str = "\x1b[0m";
+pub const DIM_GREEN: &str = "\x1b[38;5;65m";
+pub const DIM_YELLOW: &str = "\x1b[38;5;136m";
+pub const DIM_ORANGE: &str = "\x1b[38;5;130m";
+pub const DIM_RED: &str = "\x1b[38;5;131m";
+pub const DIM_CYAN: &str = "\x1b[38;5;67m";
+pub const DIM_PINK: &str = "\x1b[38;5;175m";
+pub const ITALIC: &str = "\x1b[3m";
+pub const NO_ITALIC: &str = "\x1b[23m";

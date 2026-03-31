@@ -1,0 +1,3 @@
+description = "Running Docker container count and names"
+components = ["count", "names"]
+has_compact = true
