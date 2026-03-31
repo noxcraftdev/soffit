@@ -52,3 +52,11 @@ pub fn cost_daily() -> &'static str {
 pub fn cost_session(sid: &str) -> String {
     format!("/tmp/soffit-cost-{sid}")
 }
+
+pub fn self_version_cache() -> &'static str {
+    "/tmp/soffit-self-version"
+}
+
+pub fn self_version_lock() -> &'static str {
+    "/tmp/soffit-self-version.lock"
+}

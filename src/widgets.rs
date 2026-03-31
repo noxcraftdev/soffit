@@ -165,7 +165,26 @@ fn latest_version() -> Option<String> {
 }
 
 fn spawn_version_fetch() {
-    let lock = paths::version_lock();
+    spawn_bg_fetch(paths::version_lock(), "fetch-version");
+}
+
+fn latest_soffit_version() -> Option<String> {
+    let path = paths::self_version_cache();
+    let stale = cache::read_stale(path);
+    if cache::needs_refresh(path, 3600.0) {
+        spawn_bg_fetch(paths::self_version_lock(), "fetch-self-version");
+    }
+    stale.and_then(|s| {
+        let s = s.trim().to_string();
+        if s.is_empty() {
+            None
+        } else {
+            Some(s)
+        }
+    })
+}
+
+fn spawn_bg_fetch(lock: &str, arg: &str) {
     let lock_path = std::path::Path::new(lock);
     if lock_path.exists() {
         let stale = lock_path
@@ -183,7 +202,7 @@ fn spawn_version_fetch() {
     let _ = std::fs::write(lock_path, "");
     let exe = std::env::current_exe().unwrap_or_default();
     let mut cmd = Command::new(exe);
-    cmd.arg("fetch-version");
+    cmd.arg(arg);
     cmd.stdout(std::process::Stdio::null());
     cmd.stderr(std::process::Stdio::null());
     let _ = cmd.spawn();
@@ -201,11 +220,15 @@ pub fn render_version(ctx: &WidgetContext, compact: bool, components: &[String])
 
     let has_update =
         matches!(latest_version(), Some(latest) if !latest.is_empty() && latest != version);
+    let has_self_update = matches!(
+        latest_soffit_version(),
+        Some(latest) if !latest.is_empty() && latest != env!("CARGO_PKG_VERSION")
+    );
 
     let mut parts: Vec<String> = Vec::new();
     for comp in active_components(components, COMPONENTS_VERSION) {
         match comp {
-            "update" if has_update => {
+            "update" if has_update || has_self_update => {
                 parts.push(format!("{ORANGE}{UPDATE_ICON} {RESET}"));
             }
             "version" => {
