@@ -6,6 +6,8 @@
 
 Customizable statusline manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Desktop editor with drag-and-drop, live preview, and a plugin system for custom widgets.
 
+![soffit in action](assets/soffit-live.png)
+
 ![soffit statusline](assets/statusline.png)
 
 ## Features
