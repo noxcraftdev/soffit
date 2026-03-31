@@ -122,14 +122,19 @@ Plugins receive JSON on stdin:
 
 ### Plugin output format
 
-Return JSON to declare components (auto-detected in the editor):
+Return JSON with `parts` so the framework reorders components per user config:
 ```json
-{"output": "rendered text here", "components": ["comp1", "comp2"]}
+{"parts": {"temp": "22°C", "condition": "sunny"}, "components": ["temp", "condition"]}
+```
+
+Or return a pre-composed string (component reordering won't apply):
+```json
+{"output": "22°C sunny", "components": ["temp", "condition"]}
 ```
 
 Or return plain text:
 ```
-rendered text here
+22°C sunny
 ```
 
 ### Plugin metadata (optional)
@@ -144,20 +149,20 @@ has_compact = true
 
 ## Community Plugins
 
-Install plugins shared on GitHub without cloning manually:
+Install plugins shared on GitHub:
 
 ```bash
-# Install all plugins from a repo
-soffit install user/repo
+# Install all plugins from the official collection
+soffit install noxcraftdev/soffit-plugins
 
-# Install a specific plugin from a repo
-soffit install user/repo/plugin-name
+# Install a specific plugin
+soffit install noxcraftdev/soffit-plugins/last-msg
 
 # Remove an installed plugin
-soffit uninstall plugin-name
+soffit uninstall last-msg
 
 # Overwrite an existing plugin
-soffit install user/repo --force
+soffit install noxcraftdev/soffit-plugins --force
 ```
 
 Installed plugins land in `~/.config/soffit/plugins/` and are immediately available.
