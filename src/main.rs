@@ -8,6 +8,7 @@ mod install;
 mod paths;
 mod plugin;
 mod render;
+mod theme;
 mod types;
 mod update;
 mod widgets;

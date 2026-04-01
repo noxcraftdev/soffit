@@ -47,7 +47,7 @@ pub fn join_segments(segments: &[String], separator: &str, max_width: u16) -> St
 pub fn run() -> Result<()> {
     let config = StatuslineConfig::load()?;
     let data = read_stdin_nonblocking();
-    let ctx = widgets::build_context(data);
+    let ctx = widgets::build_context(data, &config);
     let sep = &config.separator;
     let width = ctx.terminal_width;
 

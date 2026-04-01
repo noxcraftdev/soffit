@@ -14,10 +14,10 @@ fn terminal_width() -> u16 {
 }
 
 use crate::cache;
-use crate::colors::*;
 use crate::config::StatuslineConfig;
 use crate::fmt::*;
 use crate::paths;
+use crate::theme::{BarStyle, IconsConfig, Theme};
 use crate::types::{InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
 
 pub const AVAILABLE: &[&str] = &[
@@ -38,16 +38,17 @@ pub struct WidgetContext {
     pub input_tokens: u64,
     pub compact_size: Option<u64>,
     pub terminal_width: u16,
+    pub theme: Theme,
+    pub icons: IconsConfig,
+    pub bar_style: BarStyle,
+    pub use_unicode_text: bool,
 }
 
-pub fn build_context(data: StdinData) -> WidgetContext {
-    let config_pct = StatuslineConfig::load()
-        .map(|c| c.autocompact_pct)
-        .unwrap_or(100);
+pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContext {
     let autocompact_pct: u32 = std::env::var("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(config_pct);
+        .unwrap_or(config.autocompact_pct);
 
     let ctx_window = data.context_window.as_ref();
     let raw_pct = ctx_window.and_then(|c| c.used_percentage).unwrap_or(0.0) as u32;
@@ -116,6 +117,10 @@ pub fn build_context(data: StdinData) -> WidgetContext {
         input_tokens,
         compact_size,
         terminal_width,
+        theme: config.theme.to_theme(),
+        icons: config.icons.clone(),
+        bar_style: config.bar_style.clone(),
+        use_unicode_text: config.use_unicode_text,
     }
 }
 
@@ -137,8 +142,6 @@ fn active_components<'a>(requested: &'a [String], defaults: &'a [&'a str]) -> Ve
 }
 
 // --- Version widget ---
-
-const UPDATE_ICON: char = '\u{2191}';
 
 use std::sync::LazyLock;
 static MODEL_RE: LazyLock<regex::Regex> =
@@ -209,6 +212,7 @@ fn spawn_bg_fetch(lock: &str, arg: &str) {
 }
 
 pub fn render_version(ctx: &WidgetContext, compact: bool, components: &[String]) -> Option<String> {
+    let t = &ctx.theme;
     let version = ctx.data.version.as_deref().filter(|v| !v.is_empty())?;
     let model_raw = ctx
         .data
@@ -229,20 +233,21 @@ pub fn render_version(ctx: &WidgetContext, compact: bool, components: &[String])
     for comp in active_components(components, COMPONENTS_VERSION) {
         match comp {
             "update" if has_update || has_self_update => {
-                parts.push(format!("{ORANGE}{UPDATE_ICON} {RESET}"));
+                let icon = ctx.icons.update.as_deref().unwrap_or("\u{2191} ");
+                parts.push(format!("{}{icon}{}", t.orange, t.reset));
             }
             "version" => {
-                if compact {
-                    parts.push(format!("{DIM}{version}{RESET}"));
+                if compact || !ctx.use_unicode_text {
+                    parts.push(format!("{}{version}{}", t.dim, t.reset));
                 } else {
-                    parts.push(format!("{DIM}{}{RESET}", superscript(version)));
+                    parts.push(format!("{}{}{}", t.dim, superscript(version), t.reset));
                 }
             }
             "model" if !model.is_empty() => {
-                if compact {
-                    parts.push(format!("{PURPLE}{model}{RESET}"));
+                if compact || !ctx.use_unicode_text {
+                    parts.push(format!("{}{model}{}", t.purple, t.reset));
                 } else {
-                    parts.push(format!("{PURPLE}{}{RESET}", subscript(&model)));
+                    parts.push(format!("{}{}{}", t.purple, subscript(&model), t.reset));
                 }
             }
             _ => {}
@@ -262,6 +267,7 @@ pub fn render_context_bar(
     compact: bool,
     components: &[String],
 ) -> Option<String> {
+    let t = &ctx.theme;
     let ctx_size = ctx.compact_size.or_else(|| {
         ctx.data
             .context_window
@@ -272,17 +278,19 @@ pub fn render_context_bar(
 
     // Responsive bar width: try 12 down to 4
     let bar_width = responsive_bar_width(ctx.terminal_width, 12, 4);
-    let (bar, col) = context_bar(ctx.pct, bar_width);
+    let (bar, col) = context_bar(ctx.pct, bar_width, t, &ctx.icons);
 
     let mut parts: Vec<String> = Vec::new();
     for comp in active_components(components, COMPONENTS_CONTEXT_BAR) {
         match comp {
             "bar" => parts.push(bar.clone()),
-            "pct" => parts.push(seg_pct(ctx.pct, col)),
+            "pct" => parts.push(seg_pct(ctx.pct, &col, t)),
             "tokens" if !compact => {
                 parts.push(format!(
-                    "{DIM}{}/{denom}{RESET}",
-                    fmt_tokens(ctx.input_tokens)
+                    "{}{}/{denom}{}",
+                    t.dim,
+                    fmt_tokens(ctx.input_tokens),
+                    t.reset
                 ));
             }
             _ => {}
@@ -296,12 +304,10 @@ pub fn render_context_bar(
 }
 
 fn responsive_bar_width(terminal_width: u16, max_width: usize, min_width: usize) -> usize {
-    // Estimate overhead: each bar char is 1 visible col, plus pct (~4 chars) + tokens (~10 chars) + separators
-    // We just pick the largest width that fits — approximate: bar + " 🯵🯵٪ 50k/200k " ~= width + 20
     let available = terminal_width as usize;
     let mut w = max_width;
     while w > min_width {
-        let estimated = w + 20; // rough overhead for pct + tokens
+        let estimated = w + 20;
         if estimated <= available {
             return w;
         }
@@ -317,11 +323,13 @@ pub fn render_duration(
     compact: bool,
     _components: &[String],
 ) -> Option<String> {
+    let t = &ctx.theme;
     let ms = ctx.data.cost.as_ref()?.total_duration_ms?;
     if compact {
-        Some(format!("{LGRAY}{}{RESET}", fmt_duration(ms)))
+        Some(format!("{}{}{}", t.lgray, fmt_duration(ms), t.reset))
     } else {
-        Some(format!("{LGRAY}\u{23f1} {}{RESET}", fmt_duration(ms)))
+        let icon = ctx.icons.duration.as_deref().unwrap_or("\u{23f1} ");
+        Some(format!("{}{icon}{}{}", t.lgray, fmt_duration(ms), t.reset))
     }
 }
 
@@ -336,13 +344,13 @@ fn parse_daily_cache(s: &str) -> Option<(f64, f64, f64)> {
     }
 }
 
-fn color_for_budget(ratio: f64) -> &'static str {
+fn color_for_budget(ratio: f64, theme: &Theme) -> &str {
     if ratio >= 1.0 {
-        RED
+        &theme.red
     } else if ratio >= 0.7 {
-        ORANGE
+        &theme.orange
     } else {
-        GREEN
+        &theme.green
     }
 }
 
@@ -372,6 +380,7 @@ fn spawn_cost_refresh(sid: &str) {
 }
 
 pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) -> Option<String> {
+    let t = &ctx.theme;
     let sid = ctx.data.session_id.as_deref().unwrap_or("");
     let daily_path = paths::cost_daily();
     let session_path = paths::cost_session(sid);
@@ -380,8 +389,9 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
     if daily_parsed.is_none() || cache::needs_refresh(daily_path, 60.0) {
         spawn_cost_refresh(sid);
     }
+    let icon = ctx.icons.cost.as_deref().unwrap_or("\u{1f4b8} ");
     let Some((today_usd, week_usd, target)) = daily_parsed else {
-        return Some(format!("\u{1f4b8} {DIM}--{RESET}"));
+        return Some(format!("{icon}{}--{}", t.dim, t.reset));
     };
 
     // Session cost: prefer direct stdin value, fall back to cache
@@ -404,8 +414,8 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
     } else {
         300.0 / 7.0
     };
-    let today_col = color_for_budget(today_usd / daily_pace);
-    let week_col = color_for_budget(week_usd / target.max(1.0));
+    let today_col = color_for_budget(today_usd / daily_pace, &ctx.theme);
+    let week_col = color_for_budget(week_usd / target.max(1.0), &ctx.theme);
 
     let active = active_components(components, COMPONENTS_COST);
     let mut parts: Vec<String> = Vec::new();
@@ -413,11 +423,11 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
         match *comp {
             "session" => {
                 if let Some(c) = session_cost {
-                    parts.push(format!("{DIM}{}{RESET}", fmt_cost(c)));
+                    parts.push(format!("{}{}{}", t.dim, fmt_cost(c), t.reset));
                 }
             }
-            "today" => parts.push(format!("{today_col}{}{RESET}", fmt_cost(today_usd))),
-            "week" => parts.push(format!("{week_col}{}{RESET}", fmt_cost(week_usd))),
+            "today" => parts.push(format!("{today_col}{}{}", fmt_cost(today_usd), t.reset)),
+            "week" => parts.push(format!("{week_col}{}{}", fmt_cost(week_usd), t.reset)),
             _ => {}
         }
     }
@@ -431,7 +441,7 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
     if compact {
         Some(body)
     } else {
-        Some(format!("\u{1f4b8} {body}"))
+        Some(format!("{icon}{body}"))
     }
 }
 
@@ -470,7 +480,13 @@ fn truncate_worktree_name(name: &str) -> String {
     }
 }
 
-fn widget_git(cwd: Option<&str>, compact: bool, components: &[String]) -> Option<String> {
+fn widget_git(
+    cwd: Option<&str>,
+    compact: bool,
+    components: &[String],
+    theme: &Theme,
+    icons: &IconsConfig,
+) -> Option<String> {
     let cwd = match cwd {
         Some(d) if !d.is_empty() => d.to_string(),
         _ => std::env::current_dir()
@@ -482,7 +498,7 @@ fn widget_git(cwd: Option<&str>, compact: bool, components: &[String]) -> Option
         return None;
     }
 
-    // Cache git info for 5s — key includes compact flag and component list
+    // Cache git info for 5s -- key includes compact flag and component list
     let mut cache_key = cwd.to_string();
     cache_key.push_str(if compact { ":c" } else { ":v" });
     for c in components {
@@ -501,7 +517,7 @@ fn widget_git(cwd: Option<&str>, compact: bool, components: &[String]) -> Option
         }
     }
 
-    let result = compute_git_segment(&cwd, compact, components);
+    let result = compute_git_segment(&cwd, compact, components, theme, icons);
 
     // Write to cache (empty string means "not a git dir")
     let cached_val = result.as_deref().unwrap_or("");
@@ -510,7 +526,14 @@ fn widget_git(cwd: Option<&str>, compact: bool, components: &[String]) -> Option
     result
 }
 
-fn compute_git_segment(cwd: &str, compact: bool, components: &[String]) -> Option<String> {
+fn compute_git_segment(
+    cwd: &str,
+    compact: bool,
+    components: &[String],
+    theme: &Theme,
+    icons: &IconsConfig,
+) -> Option<String> {
+    let t = theme;
     let branch = git_run(&["branch", "--show-current"], cwd)
         .or_else(|| {
             git_run(&["rev-parse", "--short", "HEAD"], cwd).map(|h| h.chars().take(7).collect())
@@ -573,23 +596,33 @@ fn compute_git_segment(cwd: &str, compact: bool, components: &[String]) -> Optio
     let mut parts: Vec<String> = Vec::new();
     for comp in active_components(components, COMPONENTS_GIT) {
         match comp {
-            "branch" => parts.push(format!("{LGRAY}\u{2387} {branch}{RESET}")),
+            "branch" => {
+                let icon = icons.git_branch.as_deref().unwrap_or("\u{2387} ");
+                parts.push(format!("{}{icon}{branch}{}", t.lgray, t.reset));
+            }
             "staged" if staged > 0 && !compact => {
-                parts.push(format!("{GREEN}\u{2022}{staged}{RESET}"));
+                let icon = icons.git_staged.as_deref().unwrap_or("\u{2022}");
+                parts.push(format!("{}{icon}{staged}{}", t.green, t.reset));
             }
             "modified" if modified > 0 && !compact => {
-                parts.push(format!("{ORANGE}+{modified}{RESET}"));
+                parts.push(format!("{}+{modified}{}", t.orange, t.reset));
             }
             "repo" if !compact => {
                 if let Some((url, name)) = &repo_url_and_name {
-                    parts.push(format!("\x1b]8;;{url}\x07{CYAN}{name}{RESET}\x1b]8;;\x07"));
+                    parts.push(format!(
+                        "\x1b]8;;{url}\x07{}{name}{}\x1b]8;;\x07",
+                        t.cyan, t.reset
+                    ));
                 } else if !dir_name.is_empty() {
-                    parts.push(format!("{CYAN}{dir_name}{RESET}"));
+                    parts.push(format!("{}{dir_name}{}", t.cyan, t.reset));
                 }
             }
             "worktree" => {
                 if let Some(wt) = &worktree_name {
-                    parts.push(format!("{ITALIC}{DIM_PINK}{wt}{NO_ITALIC}{RESET}"));
+                    parts.push(format!(
+                        "{}{}{wt}{}{}",
+                        t.italic, t.dim_pink, t.no_italic, t.reset
+                    ));
                 }
             }
             _ => {}
@@ -606,10 +639,11 @@ fn compute_git_segment(cwd: &str, compact: bool, components: &[String]) -> Optio
 // --- Insights widget ---
 
 pub fn render_insights(
-    _ctx: &WidgetContext,
+    ctx: &WidgetContext,
     compact: bool,
     components: &[String],
 ) -> Option<String> {
+    let t = &ctx.theme;
     let insights_path =
         dirs::home_dir()?.join(".local/share/jarvis/insights/pending-insights.json");
     let strategies_path =
@@ -644,53 +678,65 @@ pub fn render_insights(
         match comp {
             "strategies" if strategies_n > 0 => {
                 if compact {
-                    parts.push(format!("{PURPLE}\u{1f52d}{strategies_n}{RESET}"));
+                    parts.push(format!("{}\u{1f52d}{strategies_n}{}", t.purple, t.reset));
                 } else {
                     let label = if strategies_n == 1 {
                         "strategy"
                     } else {
                         "strategies"
                     };
-                    parts.push(format!("{PURPLE}\u{1f52d} {strategies_n} {label}{RESET}"));
+                    parts.push(format!(
+                        "{}\u{1f52d} {strategies_n} {label}{}",
+                        t.purple, t.reset
+                    ));
                 }
             }
             "priorities" if priorities_n > 0 => {
                 if compact {
-                    parts.push(format!("{RED}\u{1f3af}{priorities_n}{RESET}"));
+                    parts.push(format!("{}\u{1f3af}{priorities_n}{}", t.red, t.reset));
                 } else {
                     let label = if priorities_n == 1 {
                         "priority"
                     } else {
                         "priorities"
                     };
-                    parts.push(format!("{RED}\u{1f3af} {priorities_n} {label}{RESET}"));
+                    parts.push(format!(
+                        "{}\u{1f3af} {priorities_n} {label}{}",
+                        t.red, t.reset
+                    ));
                 }
             }
             "insights" if insights_n > 0 => {
                 if compact {
-                    parts.push(format!("{ORANGE}\u{1f4a1}{insights_n}{RESET}"));
+                    parts.push(format!("{}\u{1f4a1}{insights_n}{}", t.orange, t.reset));
                 } else {
                     let label = if insights_n == 1 {
                         "insight"
                     } else {
                         "insights"
                     };
-                    parts.push(format!("{ORANGE}\u{1f4a1} {insights_n} {label}{RESET}"));
+                    parts.push(format!(
+                        "{}\u{1f4a1} {insights_n} {label}{}",
+                        t.orange, t.reset
+                    ));
                 }
             }
             "notes" if notes_n > 0 => {
                 if compact {
-                    parts.push(format!("{GREEN}\u{1f4cb}{notes_n}{RESET}"));
+                    parts.push(format!("{}\u{1f4cb}{notes_n}{}", t.green, t.reset));
                 } else {
                     let label = if notes_n == 1 { "note" } else { "notes" };
-                    parts.push(format!("{GREEN}\u{1f4cb} {notes_n} {label}{RESET}"));
+                    parts.push(format!("{}\u{1f4cb} {notes_n} {label}{}", t.green, t.reset));
                 }
             }
             "pending" if pending_n > 0 => {
                 if compact {
-                    parts.push(format!("{YELLOW}\u{23f3}{pending_n}{RESET}"));
+                    parts.push(format!("{}\u{23f3}{pending_n}{}", t.yellow, t.reset));
                 } else {
-                    parts.push(format!("{YELLOW}\u{23f3} {pending_n} pending{RESET}"));
+                    parts.push(format!(
+                        "{}\u{23f3} {pending_n} pending{}",
+                        t.yellow, t.reset
+                    ));
                 }
             }
             _ => {}
@@ -713,18 +759,20 @@ pub fn render_insights(
 // --- Vim widget ---
 
 pub fn render_vim(ctx: &WidgetContext, _compact: bool, _components: &[String]) -> Option<String> {
+    let t = &ctx.theme;
     let mode = ctx
         .data
         .vim
         .as_ref()
         .map(|v| v.mode.as_str())
         .filter(|m| !m.is_empty())?;
-    Some(format!("{PURPLE}{mode}{RESET}"))
+    Some(format!("{}{mode}{}", t.purple, t.reset))
 }
 
 // --- Agent widget ---
 
 pub fn render_agent(ctx: &WidgetContext, compact: bool, _components: &[String]) -> Option<String> {
+    let t = &ctx.theme;
     let name = ctx
         .data
         .agent
@@ -732,9 +780,10 @@ pub fn render_agent(ctx: &WidgetContext, compact: bool, _components: &[String]) 
         .map(|a| a.name.as_str())
         .filter(|n| !n.is_empty())?;
     if compact {
-        Some(format!("{ORANGE}{name}{RESET}"))
+        Some(format!("{}{name}{}", t.orange, t.reset))
     } else {
-        Some(format!("{ORANGE}\u{276f} {name}{RESET}"))
+        let icon = ctx.icons.agent.as_deref().unwrap_or("\u{276f} ");
+        Some(format!("{}{icon}{name}{}", t.orange, t.reset))
     }
 }
 
@@ -744,6 +793,7 @@ const FIVE_HOURS: f64 = 5.0 * 3600.0;
 const SEVEN_DAYS: f64 = 7.0 * 24.0 * 3600.0;
 
 pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) -> Option<String> {
+    let t = &ctx.theme;
     let rate_limits = ctx.data.rate_limits.as_ref()?;
 
     let bar_width = responsive_bar_width(ctx.terminal_width, 12, 4);
@@ -754,14 +804,32 @@ pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) 
         match *comp {
             "five_hour" => {
                 if let Some(rl) = &rate_limits.five_hour {
-                    if let Some(seg) = render_quota_window(rl, bar_width, FIVE_HOURS, "5h", false) {
+                    if let Some(seg) = render_quota_window(
+                        rl,
+                        bar_width,
+                        FIVE_HOURS,
+                        "5h",
+                        false,
+                        t,
+                        &ctx.bar_style,
+                        &ctx.icons,
+                    ) {
                         segments.push(seg);
                     }
                 }
             }
             "seven_day" => {
                 if let Some(rl) = &rate_limits.seven_day {
-                    if let Some(seg) = render_quota_window(rl, bar_width, SEVEN_DAYS, "7d", true) {
+                    if let Some(seg) = render_quota_window(
+                        rl,
+                        bar_width,
+                        SEVEN_DAYS,
+                        "7d",
+                        true,
+                        t,
+                        &ctx.bar_style,
+                        &ctx.icons,
+                    ) {
                         segments.push(seg);
                     }
                 }
@@ -773,16 +841,20 @@ pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) 
     if segments.is_empty() {
         None
     } else {
-        Some(segments.join(&format!(" {DIM}|{RESET} ")))
+        Some(segments.join(&format!(" {}|{} ", t.dim, t.reset)))
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_quota_window(
     rl: &crate::types::RateLimit,
     bar_width: usize,
     window_secs: f64,
     label: &str,
     show_pace: bool,
+    theme: &Theme,
+    bar_style: &BarStyle,
+    icons: &IconsConfig,
 ) -> Option<String> {
     let used = rl.used_percentage?;
     let remaining = (100.0 - used).max(0.0) as u32;
@@ -799,13 +871,15 @@ fn render_quota_window(
         None
     };
 
-    let col = quota_color(used, remaining_secs, window_secs);
-    let (bar, _) = usage_bar(remaining, bar_width, col, pace_pct);
-    let pct_str = seg_pct(remaining, col);
+    let col = quota_color(used, remaining_secs, window_secs, theme);
+    let (bar, _) = usage_bar(
+        remaining, bar_width, &col, pace_pct, theme, bar_style, icons,
+    );
+    let pct_str = seg_pct(remaining, &col, theme);
 
     let pace_part = if show_pace {
         pace_balance_secs(used, remaining_secs, window_secs)
-            .map(|bal| format!(" {}", fmt_pace(bal, window_secs as u64)))
+            .map(|bal| format!(" {}", fmt_pace(bal, window_secs as u64, theme)))
             .unwrap_or_default()
     } else {
         String::new()
@@ -814,11 +888,12 @@ fn render_quota_window(
     let reset_part = if reset_str.is_empty() {
         String::new()
     } else {
-        format!(" {DIM}{reset_str}{RESET}")
+        format!(" {}{reset_str}{}", theme.dim, theme.reset)
     };
 
     Some(format!(
-        "{DIM}{label}:{RESET} {bar} {pct_str}{pace_part}{reset_part}"
+        "{}{label}:{} {bar} {pct_str}{pace_part}{reset_part}",
+        theme.dim, theme.reset
     ))
 }
 
@@ -829,6 +904,7 @@ pub fn render_session(
     _compact: bool,
     _components: &[String],
 ) -> Option<String> {
+    let t = &ctx.theme;
     let sid = ctx.data.session_id.as_deref().filter(|s| !s.is_empty())?;
 
     // Load or refresh sid list (TTL 30s)
@@ -845,7 +921,7 @@ pub fn render_session(
     };
 
     let prefix = shortest_unique_prefix(sid, &all_sids);
-    Some(format!("{DIM}{prefix}{RESET}"))
+    Some(format!("{}{prefix}{}", t.dim, t.reset))
 }
 
 fn collect_session_ids() -> Vec<String> {
@@ -908,6 +984,8 @@ fn dispatch_widget(
                 .and_then(|w| w.current_dir.as_deref()),
             compact,
             components,
+            &ctx.theme,
+            &ctx.icons,
         ),
         "insights" => render_insights(ctx, compact, components),
         "vim" => render_vim(ctx, compact, components),
@@ -966,7 +1044,8 @@ pub fn render(name: &str) -> anyhow::Result<()> {
             AVAILABLE.join(", ")
         );
     }
-    let ctx = build_context(StdinData::default());
+    let config = StatuslineConfig::load()?;
+    let ctx = build_context(StdinData::default(), &config);
     let output = render_line(&[name.to_string()], &ctx, "", &HashMap::new());
     if !output.is_empty() {
         println!("{output}");
@@ -980,7 +1059,8 @@ mod tests {
     use crate::types::*;
 
     fn make_ctx(data: StdinData) -> WidgetContext {
-        let ctx = build_context(data);
+        let config = StatuslineConfig::default();
+        let ctx = build_context(data, &config);
         // Override terminal_width for deterministic tests
         WidgetContext {
             terminal_width: 120,
@@ -1012,7 +1092,7 @@ mod tests {
         };
         let ctx = make_ctx(data);
         let bar = render_context_bar(&ctx, false, &[]).unwrap();
-        // Gradient chars: ■, ◧, □ — NOT ●○
+        // Gradient chars: ■, ◧, □ -- NOT ●○
         assert!(bar.contains('■') || bar.contains('◧') || bar.contains('□'));
         assert!(!bar.contains('●'));
         assert!(!bar.contains('○'));
@@ -1074,7 +1154,13 @@ mod tests {
 
     #[test]
     fn git_widget_in_non_git_dir_returns_none() {
-        let result = widget_git(Some("/tmp"), false, &[]);
+        let result = widget_git(
+            Some("/tmp"),
+            false,
+            &[],
+            &Theme::default(),
+            &IconsConfig::default(),
+        );
         assert!(result.is_none());
     }
 
@@ -1124,7 +1210,8 @@ mod tests {
 
     #[test]
     fn build_context_defaults_with_empty_stdin() {
-        let ctx = build_context(StdinData::default());
+        let config = StatuslineConfig::default();
+        let ctx = build_context(StdinData::default(), &config);
         assert_eq!(ctx.pct, 0);
         assert_eq!(ctx.input_tokens, 0);
         assert!(ctx.compact_size.is_none());
@@ -1147,5 +1234,25 @@ mod tests {
     fn truncate_worktree_name_long() {
         let result = truncate_worktree_name("abcdefghij");
         assert_eq!(result, "ab..ij");
+    }
+
+    #[test]
+    fn render_agent_custom_icon() {
+        let data = StdinData {
+            agent: Some(AgentInfo {
+                name: "test-agent".into(),
+            }),
+            ..Default::default()
+        };
+        let mut config = StatuslineConfig::default();
+        config.icons.agent = Some(">> ".to_string());
+        let ctx = build_context(data, &config);
+        let ctx = WidgetContext {
+            terminal_width: 120,
+            ..ctx
+        };
+        let result = render_agent(&ctx, false, &[]).unwrap();
+        assert!(result.contains(">> test-agent"));
+        assert!(!result.contains('\u{276f}'));
     }
 }

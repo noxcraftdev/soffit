@@ -270,14 +270,28 @@ fn parse_comp_drop(s: &str) -> Option<CompDrop> {
 
 // ---- preview ---------------------------------------------------------------
 
-fn widget_preview(name: &str, compact: bool, components: &[String]) -> Element {
-    let dim = "#6c7086";
-    let blue = "#89b4fa";
-    let green = "#a6e3a1";
-    let orange = "#fab387";
-    let red = "#f38ba8";
-    let purple = "#cba6f7";
-    let yellow = "#f9e2af";
+fn widget_preview(
+    name: &str,
+    compact: bool,
+    components: &[String],
+    config: &StatuslineConfig,
+) -> Element {
+    use crate::theme::ansi_256_to_hex;
+    let tc = &config.theme;
+    let dim_s = ansi_256_to_hex(tc.dim.unwrap_or(242));
+    let blue_s = ansi_256_to_hex(tc.cyan.unwrap_or(111));
+    let green_s = ansi_256_to_hex(tc.green.unwrap_or(114));
+    let orange_s = ansi_256_to_hex(tc.orange.unwrap_or(215));
+    let red_s = ansi_256_to_hex(tc.red.unwrap_or(203));
+    let purple_s = ansi_256_to_hex(tc.purple.unwrap_or(183));
+    let yellow_s = ansi_256_to_hex(tc.yellow.unwrap_or(228));
+    let dim = dim_s.as_str();
+    let blue = blue_s.as_str();
+    let green = green_s.as_str();
+    let orange = orange_s.as_str();
+    let red = red_s.as_str();
+    let purple = purple_s.as_str();
+    let yellow = yellow_s.as_str();
 
     match name {
         "insights" => {
@@ -339,17 +353,38 @@ fn widget_preview(name: &str, compact: bool, components: &[String]) -> Element {
             }
         }
         "version" => {
-            let all: &[(&str, &str, &str, &str)] = &[
-                ("update", orange, "", ""),
-                ("version", dim, "1.2.16", "1.2.16"),
-                ("model", purple, "sonnet", "claude-sonnet-4-6"),
-            ];
-            let parts: Vec<(&str, &str)> = components
+            let use_uni = config.use_unicode_text;
+            let ver_v = if use_uni {
+                crate::fmt::superscript("1.2.16")
+            } else {
+                "1.2.16".into()
+            };
+            let model_v = if use_uni {
+                crate::fmt::subscript("claude-sonnet-4-6")
+            } else {
+                "claude-sonnet-4-6".into()
+            };
+            let parts: Vec<(&str, String)> = components
                 .iter()
-                .filter_map(|c| {
-                    all.iter()
-                        .find(|(k, _, _, _)| *k == c.as_str())
-                        .map(|(_, col, c_txt, v_txt)| (*col, if compact { *c_txt } else { *v_txt }))
+                .filter_map(|c| match c.as_str() {
+                    "update" => Some((orange, String::new())),
+                    "version" => Some((
+                        dim,
+                        if compact {
+                            "1.2.16".into()
+                        } else {
+                            ver_v.clone()
+                        },
+                    )),
+                    "model" => Some((
+                        purple,
+                        if compact {
+                            "sonnet".into()
+                        } else {
+                            model_v.clone()
+                        },
+                    )),
+                    _ => None,
                 })
                 .filter(|(_, txt)| !txt.is_empty())
                 .collect();
@@ -364,8 +399,8 @@ fn widget_preview(name: &str, compact: bool, components: &[String]) -> Element {
         }
         "context_bar" => {
             let all: &[(&str, &str, &str, bool)] = &[
-                ("bar", blue, "▓▓▓▓░░░░", false),
-                ("pct", blue, "42%", false),
+                ("bar", green, "■■■■□□□□", false),
+                ("pct", green, "🯴🯲٪", false),
                 ("tokens", dim, "42k/100k", true),
             ];
             let parts: Vec<(&str, &str)> = components
@@ -444,15 +479,19 @@ fn widget_preview(name: &str, compact: bool, components: &[String]) -> Element {
                 "config": { "compact": compact, "components": components }
             });
             match crate::plugin::run_plugin(name, &input.to_string()) {
-                Some(text) => rsx! { span { style: "color:#fab387", "⚙ {text}" } },
-                None => rsx! { span { style: "color:#fab387", "⚙ {name}" } },
+                Some(text) => {
+                    let html = format!("⚙ {}", crate::theme::ansi_to_html(&text));
+                    rsx! { span { style: "color:{orange}", dangerous_inner_html: "{html}" } }
+                }
+                None => rsx! { span { style: "color:{orange}", "⚙ {name}" } },
             }
         }
     }
 }
 
 fn preview_line(widgets: &[String], config: &StatuslineConfig) -> Element {
-    let dim = "#6c7086";
+    let dim_s = crate::theme::ansi_256_to_hex(config.theme.dim.unwrap_or(242));
+    let dim = dim_s.as_str();
     if widgets.is_empty() {
         return rsx! { span { style: "color:{dim}; font-style:italic;", "—" } };
     }
@@ -463,7 +502,7 @@ fn preview_line(widgets: &[String], config: &StatuslineConfig) -> Element {
                 {
                     let compact = config.widgets.get(name.as_str()).map(|c| c.compact).unwrap_or(false);
                     let comps = effective_components(config, name.as_str());
-                    widget_preview(name.as_str(), compact, &comps)
+                    widget_preview(name.as_str(), compact, &comps, config)
                 }
             }
         }
@@ -947,7 +986,7 @@ fn PluginAccordion(
                 span { style: "color:#fab387;", "⚙" }
                 span { style: "font-weight:bold; color:#cba6f7; min-width:90px;", "{widget_name}" }
                 span { style: "font-family:monospace; font-size:12px; flex:1;",
-                    {widget_preview(&widget_name, compact, &effective_comps)}
+                    {widget_preview(&widget_name, compact, &effective_comps, &config.read())}
                 }
                 if has_compact {
                     button {
@@ -1098,13 +1137,14 @@ fn PluginAccordion(
                                 }
                                 None => (String::new(), &vec![] as &Vec<String>),
                             };
+                            let html = crate::theme::ansi_to_html(&text);
                             rsx! {
                                 div {
                                     style: "background:#11111b; border:1px solid #313244; border-radius:4px; padding:8px; font-family:monospace; font-size:12px;",
-                                    if text.is_empty() {
+                                    if html.is_empty() {
                                         span { style: "color:#6c7086; font-style:italic;", "click Run to preview" }
                                     } else {
-                                        span { "{text}" }
+                                        span { dangerous_inner_html: "{html}" }
                                     }
                                 }
                                 if !comps.is_empty() {
@@ -1220,7 +1260,7 @@ fn WidgetAccordion(
                 style: "display:flex; align-items:center; gap:10px; padding:8px 12px; cursor:pointer; list-style:none; user-select:none;",
                 span { style: "font-weight:bold; color:#cba6f7; min-width:90px;", "{widget_name}" }
                 span { style: "font-family:monospace; font-size:12px; flex:1;",
-                    {widget_preview(&widget_name, compact, &effective_comps)}
+                    {widget_preview(&widget_name, compact, &effective_comps, &config.read())}
                 }
                 if has_compact {
                     button {

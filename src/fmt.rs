@@ -1,4 +1,4 @@
-use crate::colors::*;
+use crate::theme::{BarStyle, IconsConfig, Theme};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -10,23 +10,26 @@ pub fn visible_len(s: &str) -> usize {
 }
 
 #[cfg(test)]
-pub fn dot_bar(pct: u32, width: usize) -> (String, &'static str) {
+pub fn dot_bar(pct: u32, width: usize) -> (String, String) {
+    let theme = Theme::default();
     let pct = pct.min(100);
     let filled = ((pct as usize * width + 50) / 100).min(width);
     let empty = width - filled;
     let col = if pct >= 80 {
-        RED
+        &theme.red
     } else if pct >= 50 {
-        ORANGE
+        &theme.orange
     } else {
-        GREEN
+        &theme.green
     };
     let bar = format!(
-        "{col}{filled}{DIM}{empty}{RESET}",
+        "{col}{filled}{dim}{empty}{reset}",
         filled = "●".repeat(filled),
+        dim = theme.dim,
         empty = "○".repeat(empty),
+        reset = theme.reset,
     );
-    (bar, col)
+    (bar, col.to_string())
 }
 
 pub fn fmt_tokens(n: u64) -> String {
@@ -91,19 +94,22 @@ pub fn subscript(s: &str) -> String {
 
 const SEG_DIGITS: &[char] = &['🯰', '🯱', '🯲', '🯳', '🯴', '🯵', '🯶', '🯷', '🯸', '🯹'];
 
-pub fn seg_pct(n: u32, col: &str) -> String {
+pub fn seg_pct(n: u32, col: &str, theme: &Theme) -> String {
     let v = n.min(999);
     let digits: String = v
         .to_string()
         .chars()
         .map(|c| SEG_DIGITS[c.to_digit(10).unwrap() as usize])
         .collect();
-    format!("{col}{digits}٪{RESET}")
+    format!("{col}{digits}٪{}", theme.reset)
 }
 
 /// Gradient context bar. Returns (bar_string, label_color).
-pub fn context_bar(pct: u32, width: usize) -> (String, &'static str) {
+pub fn context_bar(pct: u32, width: usize, theme: &Theme, icons: &IconsConfig) -> (String, String) {
     let pct = pct.min(100);
+    let fill_ch = icons.bar_fill.unwrap_or('■');
+    let empty_ch = icons.bar_empty.unwrap_or('□');
+    let half_ch = icons.bar_half.unwrap_or('◧');
     // Scale default thresholds (4 and 9 out of 12) proportionally.
     let threshold0 = (4 * width + 6) / 12;
     let threshold1 = (9 * width + 6) / 12;
@@ -112,16 +118,15 @@ pub fn context_bar(pct: u32, width: usize) -> (String, &'static str) {
     let fill_int = fill_f.floor() as usize;
     let frac = fill_f - fill_int as f64;
 
-    let mut bar = String::new();
+    let mut bar = String::with_capacity(width * 16);
 
     for pos in 0..width {
-        // Determine color for this position.
         let (bright, dim) = if pos < threshold0 {
-            (GREEN, DIM_GREEN)
+            (&theme.green, &theme.dim_green)
         } else if pos < threshold1 {
-            (ORANGE, DIM_ORANGE)
+            (&theme.orange, &theme.dim_orange)
         } else {
-            (RED, DIM_RED)
+            (&theme.red, &theme.dim_red)
         };
         let half = if pos < threshold0 {
             threshold0 / 2
@@ -133,22 +138,25 @@ pub fn context_bar(pct: u32, width: usize) -> (String, &'static str) {
         let col = if pos >= half { bright } else { dim };
 
         if pos < fill_int {
-            bar.push_str(&format!("{col}■"));
+            bar.push_str(col);
+            bar.push(fill_ch);
         } else if pos == fill_int && frac > 0.0 {
-            let ch = if frac < 0.5 { '◧' } else { '■' };
-            bar.push_str(&format!("{col}{ch}"));
+            let ch = if frac < 0.5 { half_ch } else { fill_ch };
+            bar.push_str(col);
+            bar.push(ch);
         } else {
-            bar.push_str(&format!("{DIM}□"));
+            bar.push_str(&theme.dim);
+            bar.push(empty_ch);
         }
     }
-    bar.push_str(RESET);
+    bar.push_str(&theme.reset);
 
-    let label_col = if fill_int >= 7 {
-        RED
-    } else if fill_int >= 3 {
-        ORANGE
+    let label_col = if fill_int >= threshold1 {
+        theme.red.clone()
+    } else if fill_int >= threshold0 {
+        theme.orange.clone()
     } else {
-        GREEN
+        theme.green.clone()
     };
 
     (bar, label_col)
@@ -160,7 +168,10 @@ pub fn usage_bar(
     width: usize,
     col: &str,
     pace_pct: Option<f64>,
-) -> (String, &'static str) {
+    theme: &Theme,
+    bar_style: &BarStyle,
+    icons: &IconsConfig,
+) -> (String, String) {
     let pct = pct.min(100);
     let fill_f = pct as f64 / 100.0 * width as f64;
     let fill_int = fill_f.floor() as usize;
@@ -176,67 +187,79 @@ pub fn usage_bar(
             f64::INFINITY
         };
         if ratio < 0.8 {
-            RED
+            &theme.red
         } else if ratio < 1.0 {
-            ORANGE
+            &theme.orange
         } else {
-            DIM
+            &theme.dim
         }
     } else {
-        DIM
+        &theme.dim
     };
 
-    let mut bar = String::new();
+    let empty_ch = match bar_style {
+        BarStyle::Ascii => icons.quota_empty.unwrap_or('-'),
+        _ => icons.quota_empty.unwrap_or('○'),
+    };
+    let pace_ch = icons.quota_pace.unwrap_or('◌');
+
+    let mut bar = String::with_capacity(width * 16);
 
     for pos in 0..width {
-        // Ahead-of-pace dimming: positions before pace_seg that are also filled
         let is_pre_pace = pace_seg
             .map(|ps| pos < ps && fill_int > ps)
             .unwrap_or(false);
-        let effective_col = if is_pre_pace { DIM } else { col };
+        let effective_col = if is_pre_pace { &theme.dim } else { col };
 
         if pos < fill_int {
-            // Determine fill character by fractional position within zone
-            let zone_f = pos as f64 / fill_f;
-            let ch = if zone_f < 0.33 {
-                '◎'
-            } else if zone_f < 0.66 {
-                '◉'
-            } else {
-                '●'
-            };
-            bar.push_str(&format!("{effective_col}{ch}"));
+            let ch = quota_fill_char(bar_style, icons, pos as f64 / fill_f);
+            bar.push_str(effective_col);
+            bar.push(ch);
         } else if pos == fill_int && frac > 0.0 {
-            let zone_f = pos as f64 / fill_f.max(1.0);
-            let ch = if zone_f < 0.33 {
-                '◎'
-            } else if zone_f < 0.66 {
-                '◉'
-            } else {
-                '●'
-            };
-            bar.push_str(&format!("{effective_col}{ch}"));
+            let ch = quota_fill_char(bar_style, icons, pos as f64 / fill_f.max(1.0));
+            bar.push_str(effective_col);
+            bar.push(ch);
         } else {
-            // Empty position — check if it's the pace marker
             let is_pace_pos = pace_seg.map(|ps| pos == ps).unwrap_or(false);
             if is_pace_pos {
-                bar.push_str(&format!("{pace_col}◌"));
+                bar.push_str(pace_col);
+                bar.push(pace_ch);
             } else {
-                bar.push_str(&format!("{DIM}○"));
+                bar.push_str(&theme.dim);
+                bar.push(empty_ch);
             }
         }
     }
-    bar.push_str(RESET);
+    bar.push_str(&theme.reset);
 
-    let label_col: &'static str = if pct >= 80 {
-        RED
+    let label_col = if pct >= 80 {
+        theme.red.clone()
     } else if pct >= 50 {
-        ORANGE
+        theme.orange.clone()
     } else {
-        CYAN
+        theme.cyan.clone()
     };
 
     (bar, label_col)
+}
+
+fn quota_fill_char(bar_style: &BarStyle, icons: &IconsConfig, zone_f: f64) -> char {
+    if let Some(ch) = icons.quota_fill {
+        return ch;
+    }
+    match bar_style {
+        BarStyle::Block => {
+            if zone_f < 0.33 {
+                '◎'
+            } else if zone_f < 0.66 {
+                '◉'
+            } else {
+                '●'
+            }
+        }
+        BarStyle::Dot => '●',
+        BarStyle::Ascii => '#',
+    }
 }
 
 fn _fmt_duration(secs: f64, show_seconds: bool) -> String {
@@ -348,17 +371,17 @@ pub fn pace_balance_secs(used: f64, remaining_secs: f64, window_secs: f64) -> Op
 }
 
 /// Format pace as italic colored segmented hours.
-pub fn fmt_pace(secs: i64, window_secs: u64) -> String {
+pub fn fmt_pace(secs: i64, window_secs: u64, theme: &Theme) -> String {
     let col: &str = if secs >= 0 {
-        DIM_CYAN
+        &theme.dim_cyan
     } else {
         let deficit_pct = secs.unsigned_abs() as f64 / window_secs as f64 * 100.0;
         if deficit_pct >= 15.0 {
-            DIM_RED
+            &theme.dim_red
         } else if deficit_pct >= 8.0 {
-            DIM_ORANGE
+            &theme.dim_orange
         } else {
-            DIM_YELLOW
+            &theme.dim_yellow
         }
     };
     let sign = if secs >= 0 { "+" } else { "-" };
@@ -368,24 +391,29 @@ pub fn fmt_pace(secs: i64, window_secs: u64) -> String {
         .chars()
         .map(|c| SEG_DIGITS[c.to_digit(10).unwrap() as usize])
         .collect::<String>();
-    format!("{ITALIC}{col}{sign}{seg_hours}h{RESET}")
+    format!("{}{col}{sign}{seg_hours}h{}", theme.italic, theme.reset)
 }
 
 /// Determine quota color based on utilization and remaining time.
-pub fn quota_color(utilization: f64, remaining_secs: f64, window_secs: f64) -> &'static str {
+pub fn quota_color(
+    utilization: f64,
+    remaining_secs: f64,
+    window_secs: f64,
+    theme: &Theme,
+) -> String {
     if remaining_secs <= 0.0 || window_secs <= 0.0 {
-        // No time context — simple threshold
+        // No time context -- simple threshold
         if utilization >= 80.0 {
-            RED
+            theme.red.clone()
         } else if utilization >= 50.0 {
-            ORANGE
+            theme.orange.clone()
         } else {
-            CYAN
+            theme.cyan.clone()
         }
     } else {
         let elapsed = window_secs - remaining_secs;
         if elapsed <= 0.0 {
-            return CYAN;
+            return theme.cyan.clone();
         }
         let even_pace_used = elapsed / window_secs * 100.0;
         let per_unit_remaining = if even_pace_used > 0.0 {
@@ -394,11 +422,11 @@ pub fn quota_color(utilization: f64, remaining_secs: f64, window_secs: f64) -> &
             1.0
         };
         if per_unit_remaining >= 0.70 {
-            CYAN
+            theme.cyan.clone()
         } else if per_unit_remaining >= 0.35 {
-            ORANGE
+            theme.orange.clone()
         } else {
-            RED
+            theme.red.clone()
         }
     }
 }
@@ -411,32 +439,36 @@ mod tests {
 
     #[test]
     fn dot_bar_zero() {
+        let t = Theme::default();
         let (bar, col) = dot_bar(0, 10);
-        assert_eq!(col, GREEN);
+        assert_eq!(col, t.green);
         assert!(bar.contains(&"○".repeat(10)));
         assert!(!bar.contains('●'));
     }
 
     #[test]
     fn dot_bar_50() {
+        let t = Theme::default();
         let (bar, col) = dot_bar(50, 10);
-        assert_eq!(col, ORANGE);
+        assert_eq!(col, t.orange);
         assert!(bar.contains(&"●".repeat(5)));
         assert!(bar.contains(&"○".repeat(5)));
     }
 
     #[test]
     fn dot_bar_80() {
+        let t = Theme::default();
         let (bar, col) = dot_bar(80, 10);
-        assert_eq!(col, RED);
+        assert_eq!(col, t.red);
         assert!(bar.contains(&"●".repeat(8)));
         assert!(bar.contains(&"○".repeat(2)));
     }
 
     #[test]
     fn dot_bar_100() {
+        let t = Theme::default();
         let (bar, col) = dot_bar(100, 10);
-        assert_eq!(col, RED);
+        assert_eq!(col, t.red);
         assert!(bar.contains(&"●".repeat(10)));
         assert!(!bar.contains('○'));
     }
@@ -480,16 +512,18 @@ mod tests {
 
     #[test]
     fn test_seg_pct_zero() {
-        let s = seg_pct(0, GREEN);
+        let t = Theme::default();
+        let s = seg_pct(0, &t.green, &t);
         assert!(s.contains('🯰'));
         assert!(s.contains('٪'));
-        assert!(s.contains(GREEN));
-        assert!(s.contains(RESET));
+        assert!(s.contains(&t.green));
+        assert!(s.contains(&t.reset));
     }
 
     #[test]
     fn test_seg_pct_clamp() {
-        let s = seg_pct(1000, RED);
+        let t = Theme::default();
+        let s = seg_pct(1000, &t.red, &t);
         // clamped to 999
         assert!(s.contains('🯹'));
     }
@@ -501,7 +535,8 @@ mod tests {
 
     #[test]
     fn test_visible_len_ansi() {
-        let s = format!("{GREEN}hello{RESET}");
+        let t = Theme::default();
+        let s = format!("{}hello{}", t.green, t.reset);
         assert_eq!(visible_len(&s), 5);
     }
 
@@ -514,47 +549,130 @@ mod tests {
 
     #[test]
     fn context_bar_zero() {
-        let (bar, col) = context_bar(0, 12);
-        assert_eq!(col, GREEN);
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, col) = context_bar(0, 12, &t, &i);
+        assert_eq!(col, t.green);
         assert!(bar.contains('□'));
         assert!(!bar.contains('■'));
     }
 
     #[test]
     fn context_bar_full() {
-        let (bar, col) = context_bar(100, 12);
-        assert_eq!(col, RED);
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, col) = context_bar(100, 12, &t, &i);
+        assert_eq!(col, t.red);
         assert!(bar.contains('■'));
         assert!(!bar.contains('□'));
     }
 
     #[test]
+    fn context_bar_small_width_label() {
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        // width=4, pct=80 -> fill_int=3, threshold1=(9*4+6)/12=3 -> RED
+        let (_bar, col) = context_bar(80, 4, &t, &i);
+        assert_eq!(col, t.red);
+    }
+
+    #[test]
+    fn context_bar_mid_width_label() {
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        // width=8, pct=50 -> fill_int=4, threshold0=(4*8+6)/12=3 -> ORANGE
+        let (_bar, col) = context_bar(50, 8, &t, &i);
+        assert_eq!(col, t.orange);
+    }
+
+    #[test]
     fn context_bar_partial() {
-        let (bar, _col) = context_bar(50, 12);
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, _col) = context_bar(50, 12, &t, &i);
         assert!(bar.contains('■') || bar.contains('◧'));
         assert!(bar.contains('□'));
     }
 
     #[test]
+    fn context_bar_custom_fill_chars() {
+        let t = Theme::default();
+        let icons = IconsConfig {
+            bar_fill: Some('█'),
+            bar_empty: Some('░'),
+            bar_half: Some('▒'),
+            ..IconsConfig::default()
+        };
+        let (bar, _col) = context_bar(50, 12, &t, &icons);
+        assert!(bar.contains('█') || bar.contains('▒'));
+        assert!(bar.contains('░'));
+        assert!(!bar.contains('■'));
+        assert!(!bar.contains('□'));
+    }
+
+    #[test]
     fn usage_bar_no_pace() {
-        let (bar, _col) = usage_bar(50, 10, CYAN, None);
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::default(), &i);
         assert!(!bar.contains('◌'));
     }
 
     #[test]
     fn usage_bar_with_pace() {
-        // fill at 80%, pace at 50% — ahead of pace, should show no pace marker in filled zone
-        let (bar, _col) = usage_bar(80, 10, CYAN, Some(50.0));
-        // pace marker ◌ should not appear (it's in filled zone)
-        // The bar should contain filled chars
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        // fill at 80%, pace at 50% -- ahead of pace, should show no pace marker in filled zone
+        let (bar, _col) = usage_bar(80, 10, &t.cyan, Some(50.0), &t, &BarStyle::default(), &i);
+        // pace marker should not appear (it's in filled zone)
         assert!(bar.contains('●') || bar.contains('◉') || bar.contains('◎'));
     }
 
     #[test]
     fn usage_bar_pace_marker_visible() {
-        // fill at 20%, pace at 60% — behind pace, marker should appear
-        let (bar, _col) = usage_bar(20, 10, CYAN, Some(60.0));
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        // fill at 20%, pace at 60% -- behind pace, marker should appear
+        let (bar, _col) = usage_bar(20, 10, &t.cyan, Some(60.0), &t, &BarStyle::default(), &i);
         assert!(bar.contains('◌'));
+    }
+
+    #[test]
+    fn usage_bar_ascii_style() {
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::Ascii, &i);
+        assert!(bar.contains('#'));
+        assert!(bar.contains('-'));
+        assert!(!bar.contains('●'));
+        assert!(!bar.contains('○'));
+    }
+
+    #[test]
+    fn usage_bar_dot_style() {
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::Dot, &i);
+        assert!(bar.contains('●'));
+        assert!(bar.contains('○'));
+        // Dot style should NOT have density progression chars
+        assert!(!bar.contains('◎'));
+        assert!(!bar.contains('◉'));
+    }
+
+    #[test]
+    fn usage_bar_custom_quota_fill() {
+        let t = Theme::default();
+        let icons = IconsConfig {
+            quota_fill: Some('X'),
+            quota_empty: Some('.'),
+            ..IconsConfig::default()
+        };
+        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::Block, &icons);
+        assert!(bar.contains('X'));
+        assert!(bar.contains('.'));
+        assert!(!bar.contains('●'));
+        assert!(!bar.contains('○'));
     }
 
     #[test]
@@ -564,15 +682,16 @@ mod tests {
 
     #[test]
     fn test_pace_balance_at_pace() {
-        // 50% used, 50% remaining, 1h window → at pace → balance ~= 0
+        // 50% used, 50% remaining, 1h window -> at pace -> balance ~= 0
         let b = pace_balance_secs(50.0, 1800.0, 3600.0).unwrap();
         assert_eq!(b, 0);
     }
 
     #[test]
     fn test_quota_color_no_time() {
-        assert_eq!(quota_color(85.0, 0.0, 0.0), RED);
-        assert_eq!(quota_color(60.0, 0.0, 0.0), ORANGE);
-        assert_eq!(quota_color(30.0, 0.0, 0.0), CYAN);
+        let t = Theme::default();
+        assert_eq!(quota_color(85.0, 0.0, 0.0, &t), t.red);
+        assert_eq!(quota_color(60.0, 0.0, 0.0, &t), t.orange);
+        assert_eq!(quota_color(30.0, 0.0, 0.0, &t), t.cyan);
     }
 }
