@@ -13,6 +13,7 @@ Customizable statusline manager for [Claude Code](https://docs.anthropic.com/en/
 ## Features
 
 - **9 built-in widgets**: context bar, cost, git, version, duration, vim mode, agent, quota, session
+- **Configurable theme**: custom colors, icons, and bar styles via config or the desktop editor
 - **Desktop editor**: drag-and-drop widget ordering, live preview, per-widget component configuration
 - **Plugin system**: create custom widgets as shell scripts or compiled binaries
 - **Auto-detection**: plugins declare components via JSON output for full editor integration
@@ -23,6 +24,12 @@ Customizable statusline manager for [Claude Code](https://docs.anthropic.com/en/
 ### Pre-built binary (recommended)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/noxcraftdev/soffit/main/install.sh | sh
+```
+
+### Homebrew (macOS/Linux)
+```bash
+brew tap noxcraftdev/soffit
+brew install soffit
 ```
 
 ### From source
@@ -77,6 +84,60 @@ autocompact_pct = 100
 [statusline_widgets.cost]
 compact = false
 components = ["session", "today", "week"]
+```
+
+### Theme colors
+
+Override any color using ANSI 256-color indices:
+
+```toml
+[statusline_theme]
+green = 82        # brighter green
+red = 196         # pure red
+dim = 240         # lighter gray
+purple = 141      # different purple
+```
+
+Available color roles:
+`green`, `orange`, `red`, `dim`, `lgray`, `cyan`, `purple`, `yellow`,
+`dim_green`, `dim_yellow`, `dim_orange`, `dim_red`, `dim_cyan`, `dim_pink`.
+Unset roles use the built-in defaults.
+
+### Icons
+
+Replace per-widget icons with any character or string:
+
+```toml
+[statusline_icons]
+cost = "$ "          # instead of 💸
+duration = "T "      # instead of ⏱
+git_branch = " "    # nerd font branch icon
+agent = "> "         # ASCII fallback
+```
+
+Available icon keys:
+`duration`, `cost`, `git_branch`, `git_staged`, `agent`, `update`.
+
+Bar characters can also be overridden:
+`bar_fill`, `bar_empty`, `bar_half` (context bar),
+`quota_fill`, `quota_empty`, `quota_pace` (quota bar).
+
+### Bar style
+
+Choose a preset for the quota progress bar:
+
+```toml
+bar_style = "block"   # ◎◉● density (default)
+bar_style = "dot"     # ●○
+bar_style = "ascii"   # #-
+```
+
+### Unicode text
+
+Superscript/subscript rendering in the version widget can be toggled:
+
+```toml
+use_unicode_text = false   # plain text instead of ¹·²·³ / ₛₒₙₙₑₜ
 ```
 
 ## Custom Plugins
