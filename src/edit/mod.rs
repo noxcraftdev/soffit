@@ -1482,6 +1482,14 @@ fn PluginAccordion(
     };
     let has_custom = !current_comps.is_empty();
 
+    let (widget_bar_style, has_appearance_override) = {
+        let cfg = config.read();
+        let wc = cfg.widgets.get(widget_name.as_str());
+        let bar_style = wc.and_then(|w| w.bar_style.clone());
+        let has_override = bar_style.is_some();
+        (bar_style, has_override)
+    };
+
     let compact_btn_style = if compact {
         "background:#89b4fa; color:#1e1e2e; border:none; border-radius:3px; padding:1px 7px; font-size:11px; cursor:pointer; font-weight:bold;"
     } else {
@@ -1490,6 +1498,7 @@ fn PluginAccordion(
 
     let wn = widget_name.clone();
     let wn2 = widget_name.clone();
+    let wn_appearance = widget_name.clone();
     let ac = all_components.clone();
     let name_save = widget_name.clone();
     let name_run = widget_name.clone();
@@ -1586,6 +1595,87 @@ fn PluginAccordion(
                                             autosave(&config);
                                         },
                                         "reset order"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // Appearance section
+                details {
+                    style: "border:1px solid #313244; border-radius:4px; background:#11111b;",
+                    summary {
+                        style: "padding:6px 10px; cursor:pointer; font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; list-style:none; user-select:none;",
+                        "Appearance"
+                        if has_appearance_override {
+                            span { style: "margin-left:6px; background:#313244; color:#89b4fa; font-size:10px; border-radius:3px; padding:1px 5px;", "overrides" }
+                        }
+                    }
+                    div { style: "padding:10px;",
+                        div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Bar Style" }
+                        div { style: "display:flex; gap:6px;",
+                            {
+                                let wna = wn_appearance.clone();
+                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
+                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
+                                rsx! {
+                                    button {
+                                        style: if widget_bar_style.is_none() { btn_active } else { btn_inactive },
+                                        onclick: move |_| {
+                                            if let Some(wc) = config.write().widgets.get_mut(&wna) {
+                                                wc.bar_style = None;
+                                            }
+                                            autosave(&config);
+                                        },
+                                        "Inherit"
+                                    }
+                                }
+                            }
+                            {
+                                let wna = wn_appearance.clone();
+                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
+                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
+                                rsx! {
+                                    button {
+                                        style: if widget_bar_style == Some(crate::theme::BarStyle::Block) { btn_active } else { btn_inactive },
+                                        onclick: move |_| {
+                                            config.write().widgets.entry(wna.clone()).or_default().bar_style =
+                                                Some(crate::theme::BarStyle::Block);
+                                            autosave(&config);
+                                        },
+                                        "Block"
+                                    }
+                                }
+                            }
+                            {
+                                let wna = wn_appearance.clone();
+                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
+                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
+                                rsx! {
+                                    button {
+                                        style: if widget_bar_style == Some(crate::theme::BarStyle::Dot) { btn_active } else { btn_inactive },
+                                        onclick: move |_| {
+                                            config.write().widgets.entry(wna.clone()).or_default().bar_style =
+                                                Some(crate::theme::BarStyle::Dot);
+                                            autosave(&config);
+                                        },
+                                        "Dot"
+                                    }
+                                }
+                            }
+                            {
+                                let wna = wn_appearance.clone();
+                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
+                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
+                                rsx! {
+                                    button {
+                                        style: if widget_bar_style == Some(crate::theme::BarStyle::Ascii) { btn_active } else { btn_inactive },
+                                        onclick: move |_| {
+                                            config.write().widgets.entry(wna.clone()).or_default().bar_style =
+                                                Some(crate::theme::BarStyle::Ascii);
+                                            autosave(&config);
+                                        },
+                                        "Ascii"
                                     }
                                 }
                             }

@@ -105,11 +105,22 @@ pub fn seg_pct(n: u32, col: &str, theme: &Theme) -> String {
 }
 
 /// Gradient context bar. Returns (bar_string, label_color).
-pub fn context_bar(pct: u32, width: usize, theme: &Theme, icons: &IconsConfig) -> (String, String) {
+pub fn context_bar(
+    pct: u32,
+    width: usize,
+    theme: &Theme,
+    icons: &IconsConfig,
+    bar_style: &BarStyle,
+) -> (String, String) {
     let pct = pct.min(100);
-    let fill_ch = icons.bar_fill.unwrap_or('■');
-    let empty_ch = icons.bar_empty.unwrap_or('□');
-    let half_ch = icons.bar_half.unwrap_or('◧');
+    let (default_fill, default_empty, default_half) = match bar_style {
+        BarStyle::Block => ('■', '□', '◧'),
+        BarStyle::Dot => ('●', '○', '◐'),
+        BarStyle::Ascii => ('#', '-', '~'),
+    };
+    let fill_ch = icons.bar_fill.unwrap_or(default_fill);
+    let empty_ch = icons.bar_empty.unwrap_or(default_empty);
+    let half_ch = icons.bar_half.unwrap_or(default_half);
     // Scale default thresholds (4 and 9 out of 12) proportionally.
     let threshold0 = (4 * width + 6) / 12;
     let threshold1 = (9 * width + 6) / 12;
@@ -551,7 +562,7 @@ mod tests {
     fn context_bar_zero() {
         let t = Theme::default();
         let i = IconsConfig::default();
-        let (bar, col) = context_bar(0, 12, &t, &i);
+        let (bar, col) = context_bar(0, 12, &t, &i, &BarStyle::default());
         assert_eq!(col, t.green);
         assert!(bar.contains('□'));
         assert!(!bar.contains('■'));
@@ -561,7 +572,7 @@ mod tests {
     fn context_bar_full() {
         let t = Theme::default();
         let i = IconsConfig::default();
-        let (bar, col) = context_bar(100, 12, &t, &i);
+        let (bar, col) = context_bar(100, 12, &t, &i, &BarStyle::default());
         assert_eq!(col, t.red);
         assert!(bar.contains('■'));
         assert!(!bar.contains('□'));
@@ -572,7 +583,7 @@ mod tests {
         let t = Theme::default();
         let i = IconsConfig::default();
         // width=4, pct=80 -> fill_int=3, threshold1=(9*4+6)/12=3 -> RED
-        let (_bar, col) = context_bar(80, 4, &t, &i);
+        let (_bar, col) = context_bar(80, 4, &t, &i, &BarStyle::default());
         assert_eq!(col, t.red);
     }
 
@@ -581,7 +592,7 @@ mod tests {
         let t = Theme::default();
         let i = IconsConfig::default();
         // width=8, pct=50 -> fill_int=4, threshold0=(4*8+6)/12=3 -> ORANGE
-        let (_bar, col) = context_bar(50, 8, &t, &i);
+        let (_bar, col) = context_bar(50, 8, &t, &i, &BarStyle::default());
         assert_eq!(col, t.orange);
     }
 
@@ -589,7 +600,7 @@ mod tests {
     fn context_bar_partial() {
         let t = Theme::default();
         let i = IconsConfig::default();
-        let (bar, _col) = context_bar(50, 12, &t, &i);
+        let (bar, _col) = context_bar(50, 12, &t, &i, &BarStyle::default());
         assert!(bar.contains('■') || bar.contains('◧'));
         assert!(bar.contains('□'));
     }
@@ -603,9 +614,31 @@ mod tests {
             bar_half: Some('▒'),
             ..IconsConfig::default()
         };
-        let (bar, _col) = context_bar(50, 12, &t, &icons);
+        let (bar, _col) = context_bar(50, 12, &t, &icons, &BarStyle::default());
         assert!(bar.contains('█') || bar.contains('▒'));
         assert!(bar.contains('░'));
+        assert!(!bar.contains('■'));
+        assert!(!bar.contains('□'));
+    }
+
+    #[test]
+    fn context_bar_dot_style() {
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, _col) = context_bar(50, 12, &t, &i, &BarStyle::Dot);
+        assert!(bar.contains('●') || bar.contains('◐'));
+        assert!(bar.contains('○'));
+        assert!(!bar.contains('■'));
+        assert!(!bar.contains('□'));
+    }
+
+    #[test]
+    fn context_bar_ascii_style() {
+        let t = Theme::default();
+        let i = IconsConfig::default();
+        let (bar, _col) = context_bar(50, 12, &t, &i, &BarStyle::Ascii);
+        assert!(bar.contains('#') || bar.contains('~'));
+        assert!(bar.contains('-'));
         assert!(!bar.contains('■'));
         assert!(!bar.contains('□'));
     }

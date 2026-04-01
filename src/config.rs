@@ -101,6 +101,11 @@ impl StatuslineConfig {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
+        let palette = table
+            .get("palette")
+            .and_then(|v| v.clone().try_into::<ThemePalette>().ok())
+            .unwrap_or_default();
+
         Ok(Self {
             line1,
             line2,
@@ -113,7 +118,7 @@ impl StatuslineConfig {
             icons,
             bar_style,
             use_unicode_text,
-            palette: ThemePalette::default(),
+            palette,
         })
     }
 
@@ -237,6 +242,15 @@ impl StatuslineConfig {
             table.insert("use_unicode_text".to_string(), toml::Value::Boolean(false));
         } else {
             table.remove("use_unicode_text");
+        }
+
+        if self.palette != ThemePalette::default() {
+            table.insert(
+                "palette".to_string(),
+                toml::Value::try_from(self.palette.clone())?,
+            );
+        } else {
+            table.remove("palette");
         }
 
         Ok(())

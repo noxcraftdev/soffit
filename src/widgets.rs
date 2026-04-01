@@ -289,7 +289,7 @@ pub fn render_context_bar(
 
     // Responsive bar width: try 12 down to 4
     let bar_width = responsive_bar_width(ctx.terminal_width, 12, 4);
-    let (bar, col) = context_bar(ctx.pct, bar_width, t, &ctx.icons);
+    let (bar, col) = context_bar(ctx.pct, bar_width, t, &ctx.icons, &ctx.bar_style);
 
     let mut parts: Vec<String> = Vec::new();
     for comp in active_components(components, COMPONENTS_CONTEXT_BAR) {
