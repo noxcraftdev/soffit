@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 
-use crate::theme::{BarStyle, IconsConfig, ThemeConfig};
+use crate::theme::{BarStyle, IconsConfig, ThemeConfig, ThemePalette};
 use crate::types::WidgetConfig;
 
 fn config_path() -> PathBuf {
@@ -24,6 +24,7 @@ pub struct StatuslineConfig {
     pub icons: IconsConfig,
     pub bar_style: BarStyle,
     pub use_unicode_text: bool,
+    pub palette: ThemePalette,
 }
 
 impl Default for StatuslineConfig {
@@ -48,6 +49,7 @@ impl Default for StatuslineConfig {
             icons: IconsConfig::default(),
             bar_style: BarStyle::default(),
             use_unicode_text: true,
+            palette: ThemePalette::default(),
         }
     }
 }
@@ -111,6 +113,7 @@ impl StatuslineConfig {
             icons,
             bar_style,
             use_unicode_text,
+            palette: ThemePalette::default(),
         })
     }
 
@@ -524,9 +527,10 @@ mod tests {
         let config = load_from_path(f.path())?;
         let cost_cfg = config.widgets.get("cost").expect("cost widget config");
         assert!(cost_cfg.compact);
+        use crate::types::ColorValue;
         let colors = cost_cfg.colors.as_ref().expect("per-widget colors");
-        assert_eq!(colors.get("within_budget"), Some(&46));
-        assert_eq!(colors.get("over_budget"), Some(&196));
+        assert_eq!(colors.get("within_budget"), Some(&ColorValue::Custom(46)));
+        assert_eq!(colors.get("over_budget"), Some(&ColorValue::Custom(196)));
         assert_eq!(colors.get("approaching"), None);
         save_to_path(&config, f.path())?;
         let reloaded = load_from_path(f.path())?;
@@ -535,8 +539,8 @@ mod tests {
             .get("cost")
             .and_then(|c| c.colors.as_ref())
             .expect("per-widget colors after round-trip");
-        assert_eq!(colors2.get("within_budget"), Some(&46));
-        assert_eq!(colors2.get("over_budget"), Some(&196));
+        assert_eq!(colors2.get("within_budget"), Some(&ColorValue::Custom(46)));
+        assert_eq!(colors2.get("over_budget"), Some(&ColorValue::Custom(196)));
         Ok(())
     }
 

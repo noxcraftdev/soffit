@@ -3,7 +3,59 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::theme::BarStyle;
+use crate::theme::{BarStyle, PaletteRole};
+
+/// A color value that is either a semantic palette role or a raw ANSI 256 index.
+/// Serializes as an integer for `Custom` and as a string role name for `Role`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ColorValue {
+    Role(PaletteRole),
+    Custom(u8),
+}
+
+impl Serialize for ColorValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ColorValue::Role(r) => serializer.serialize_str(r.name()),
+            ColorValue::Custom(n) => serializer.serialize_u8(*n),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ColorValue {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ColorValueVisitor;
+        impl<'de> serde::de::Visitor<'de> for ColorValueVisitor {
+            type Value = ColorValue;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "a u8 color index or a palette role name string")
+            }
+            fn visit_u8<E: serde::de::Error>(self, v: u8) -> Result<ColorValue, E> {
+                Ok(ColorValue::Custom(v))
+            }
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<ColorValue, E> {
+                Ok(ColorValue::Custom(v as u8))
+            }
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<ColorValue, E> {
+                Ok(ColorValue::Custom(v as u8))
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<ColorValue, E> {
+                PaletteRole::from_name(v)
+                    .map(ColorValue::Role)
+                    .ok_or_else(|| {
+                        E::unknown_variant(
+                            v,
+                            &[
+                                "primary", "accent", "success", "warning", "danger", "muted",
+                                "subtle",
+                            ],
+                        )
+                    })
+            }
+        }
+        deserializer.deserialize_any(ColorValueVisitor)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct WidgetConfig {
@@ -12,7 +64,7 @@ pub struct WidgetConfig {
     #[serde(default)]
     pub components: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub colors: Option<HashMap<String, u8>>,
+    pub colors: Option<HashMap<String, ColorValue>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icons: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

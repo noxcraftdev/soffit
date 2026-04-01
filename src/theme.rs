@@ -138,6 +138,190 @@ impl ThemeConfig {
     }
 }
 
+/// Semantic roles for a theme palette.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum PaletteRole {
+    Primary,
+    Accent,
+    Success,
+    Warning,
+    Danger,
+    Muted,
+    Subtle,
+}
+
+#[allow(dead_code)]
+pub const PALETTE_ROLES: &[PaletteRole] = &[
+    PaletteRole::Primary,
+    PaletteRole::Accent,
+    PaletteRole::Success,
+    PaletteRole::Warning,
+    PaletteRole::Danger,
+    PaletteRole::Muted,
+    PaletteRole::Subtle,
+];
+
+#[allow(dead_code)]
+impl PaletteRole {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Primary => "primary",
+            Self::Accent => "accent",
+            Self::Success => "success",
+            Self::Warning => "warning",
+            Self::Danger => "danger",
+            Self::Muted => "muted",
+            Self::Subtle => "subtle",
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Primary => "Primary",
+            Self::Accent => "Accent",
+            Self::Success => "Success",
+            Self::Warning => "Warning",
+            Self::Danger => "Danger",
+            Self::Muted => "Muted",
+            Self::Subtle => "Subtle",
+        }
+    }
+
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            "primary" => Some(Self::Primary),
+            "accent" => Some(Self::Accent),
+            "success" => Some(Self::Success),
+            "warning" => Some(Self::Warning),
+            "danger" => Some(Self::Danger),
+            "muted" => Some(Self::Muted),
+            "subtle" => Some(Self::Subtle),
+            _ => None,
+        }
+    }
+}
+
+/// A named set of 7 semantic color indices (ANSI 256).
+#[allow(dead_code)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ThemePalette {
+    pub primary: u8,
+    pub accent: u8,
+    pub success: u8,
+    pub warning: u8,
+    pub danger: u8,
+    pub muted: u8,
+    pub subtle: u8,
+}
+
+impl Default for ThemePalette {
+    fn default() -> Self {
+        Self {
+            primary: 111,
+            accent: 183,
+            success: 114,
+            warning: 215,
+            danger: 203,
+            muted: 242,
+            subtle: 250,
+        }
+    }
+}
+
+#[allow(dead_code)]
+impl ThemePalette {
+    pub fn resolve(&self, role: PaletteRole) -> u8 {
+        match role {
+            PaletteRole::Primary => self.primary,
+            PaletteRole::Accent => self.accent,
+            PaletteRole::Success => self.success,
+            PaletteRole::Warning => self.warning,
+            PaletteRole::Danger => self.danger,
+            PaletteRole::Muted => self.muted,
+            PaletteRole::Subtle => self.subtle,
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub const THEME_PRESETS: &[(&str, ThemePalette)] = &[
+    (
+        "Default",
+        ThemePalette {
+            primary: 111,
+            accent: 183,
+            success: 114,
+            warning: 215,
+            danger: 203,
+            muted: 242,
+            subtle: 250,
+        },
+    ),
+    (
+        "Nord",
+        ThemePalette {
+            primary: 111,
+            accent: 147,
+            success: 114,
+            warning: 222,
+            danger: 210,
+            muted: 243,
+            subtle: 252,
+        },
+    ),
+    (
+        "Warm",
+        ThemePalette {
+            primary: 214,
+            accent: 211,
+            success: 150,
+            warning: 221,
+            danger: 196,
+            muted: 240,
+            subtle: 248,
+        },
+    ),
+    (
+        "Mono",
+        ThemePalette {
+            primary: 252,
+            accent: 248,
+            success: 250,
+            warning: 246,
+            danger: 244,
+            muted: 240,
+            subtle: 236,
+        },
+    ),
+    (
+        "Dracula",
+        ThemePalette {
+            primary: 141,
+            accent: 212,
+            success: 84,
+            warning: 228,
+            danger: 210,
+            muted: 61,
+            subtle: 189,
+        },
+    ),
+];
+
+/// Curated ANSI 256-color indices for color pickers (skip 0-15 terminal-dependent).
+#[allow(dead_code)]
+pub const CURATED_COLORS: &[u8] = &[
+    // Blues
+    21, 27, 33, 39, 63, 69, 75, 111, // Cyans/teals
+    44, 45, 50, 51, 80, 81, 86, 87, // Greens
+    46, 82, 83, 84, 112, 113, 114, 118, 119, 150, // Yellows/oranges
+    136, 178, 214, 215, 220, 221, 222, 226, 227, 228, // Reds/pinks
+    196, 197, 198, 203, 204, 210, 211, 212, // Purples/magentas
+    129, 135, 141, 147, 165, 171, 177, 183, 189, // Muted/dim
+    61, 65, 67, 95, 96, 100, 101, 130, 131, 175, // Grayscale
+    232, 234, 236, 238, 240, 242, 244, 246, 248, 250, 252, 254, 255,
+];
+
 /// Customizable icon/symbol overrides.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct IconsConfig {

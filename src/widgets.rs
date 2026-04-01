@@ -17,8 +17,8 @@ use crate::cache;
 use crate::config::StatuslineConfig;
 use crate::fmt::*;
 use crate::paths;
-use crate::theme::{BarStyle, IconsConfig, Theme, ThemeConfig};
-use crate::types::{InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
+use crate::theme::{BarStyle, IconsConfig, Theme, ThemeConfig, ThemePalette};
+use crate::types::{ColorValue, InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
 
 pub const AVAILABLE: &[&str] = &[
     "context_bar",
@@ -43,6 +43,14 @@ pub struct WidgetContext {
     pub icons: IconsConfig,
     pub bar_style: BarStyle,
     pub use_unicode_text: bool,
+    pub palette: ThemePalette,
+}
+
+fn resolve_color(val: &ColorValue, palette: &ThemePalette) -> u8 {
+    match val {
+        ColorValue::Role(r) => palette.resolve(*r),
+        ColorValue::Custom(n) => *n,
+    }
 }
 
 pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContext {
@@ -123,6 +131,7 @@ pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContex
         icons: config.icons.clone(),
         bar_style: config.bar_style.clone(),
         use_unicode_text: config.use_unicode_text,
+        palette: config.palette.clone(),
     }
 }
 
@@ -986,7 +995,8 @@ fn dispatch_widget(
         if let Some(ref colors) = c.colors {
             if let Some(wref) = widget_ref(name) {
                 for slot in wref.color_slots {
-                    if let Some(&idx) = colors.get(slot.key) {
+                    if let Some(color_val) = colors.get(slot.key) {
+                        let idx = resolve_color(color_val, &ctx.palette);
                         effective_theme_config.set_field(slot.theme_field, Some(idx));
                     }
                 }
@@ -1018,6 +1028,7 @@ fn dispatch_widget(
             icons: effective_icons,
             bar_style: effective_bar_style,
             use_unicode_text: ctx.use_unicode_text,
+            palette: ctx.palette.clone(),
         };
         &merged
     } else {

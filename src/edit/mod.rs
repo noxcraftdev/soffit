@@ -6,7 +6,11 @@ use dioxus::prelude::*;
 
 use crate::config::StatuslineConfig;
 use crate::plugin::{self, PluginMeta};
-use crate::theme::BarStyle;
+use crate::theme::{
+    ansi_256_to_hex, BarStyle, PaletteRole, ThemePalette, CURATED_COLORS, PALETTE_ROLES,
+    THEME_PRESETS,
+};
+use crate::types::ColorValue;
 use widget_reference::{component_desc, widget_ref, WIDGETS};
 
 // ---- entry point -----------------------------------------------------------
@@ -272,6 +276,26 @@ fn parse_comp_drop(s: &str) -> Option<CompDrop> {
 
 // ---- preview ---------------------------------------------------------------
 
+fn resolve_preview_icon<'a>(
+    icons: &'a std::collections::HashMap<String, String>,
+    key: &str,
+    default: &'a str,
+) -> &'a str {
+    icons.get(key).map(|s| s.as_str()).unwrap_or(default)
+}
+
+fn bar_style_chars(
+    bar_style: &crate::theme::BarStyle,
+    fill_default: char,
+    empty_default: char,
+) -> (char, char) {
+    match bar_style {
+        crate::theme::BarStyle::Block => (fill_default, empty_default),
+        crate::theme::BarStyle::Dot => ('●', '○'),
+        crate::theme::BarStyle::Ascii => ('#', '-'),
+    }
+}
+
 fn widget_preview(
     name: &str,
     compact: bool,
@@ -284,9 +308,14 @@ fn widget_preview(
         let colors = config.widgets.get(name).and_then(|wc| wc.colors.as_ref());
         if let Some(colors) = colors {
             merged_tc = {
+                use crate::types::ColorValue;
                 let mut tc = config.theme.clone();
                 for slot in wref.color_slots {
-                    if let Some(&idx) = colors.get(slot.key) {
+                    if let Some(color_val) = colors.get(slot.key) {
+                        let idx = match color_val {
+                            ColorValue::Custom(n) => *n,
+                            ColorValue::Role(r) => config.palette.resolve(*r),
+                        };
                         tc.set_field(slot.theme_field, Some(idx));
                     }
                 }
@@ -299,6 +328,20 @@ fn widget_preview(
     } else {
         &config.theme
     };
+
+    let widget_icons: std::collections::HashMap<String, String> = config
+        .widgets
+        .get(name)
+        .and_then(|wc| wc.icons.as_ref())
+        .cloned()
+        .unwrap_or_default();
+
+    let widget_bar_style = config
+        .widgets
+        .get(name)
+        .and_then(|wc| wc.bar_style.clone())
+        .unwrap_or_else(|| config.bar_style.clone());
+
     let dim_s = ansi_256_to_hex(tc.dim.unwrap_or(242));
     let blue_s = ansi_256_to_hex(tc.cyan.unwrap_or(111));
     let green_s = ansi_256_to_hex(tc.green.unwrap_or(114));
@@ -345,6 +388,7 @@ fn widget_preview(
             }
         }
         "cost" => {
+            let cost_icon = resolve_preview_icon(&widget_icons, "cost", "💸 ");
             let all: &[(&str, &str, &str)] = &[
                 ("session", dim, "$0.42"),
                 ("today", green, "$1.80"),
@@ -363,7 +407,7 @@ fn widget_preview(
             }
             rsx! {
                 span {
-                    if !compact { "💸 " }
+                    if !compact { "{cost_icon}" }
                     for (i, (color, val)) in parts.into_iter().enumerate() {
                         if i > 0 {
                             if compact { " " } else { span { style: "color:{dim}", " | " } }
@@ -374,6 +418,7 @@ fn widget_preview(
             }
         }
         "version" => {
+            let update_icon = resolve_preview_icon(&widget_icons, "update", "↑ ").to_string();
             let use_uni = config.use_unicode_text;
             let ver_v = if use_uni {
                 crate::fmt::superscript("1.2.16")
@@ -388,7 +433,7 @@ fn widget_preview(
             let parts: Vec<(&str, String)> = components
                 .iter()
                 .filter_map(|c| match c.as_str() {
-                    "update" => Some((orange, String::new())),
+                    "update" => Some((orange, update_icon.clone())),
                     "version" => Some((
                         dim,
                         if compact {
@@ -419,18 +464,37 @@ fn widget_preview(
             }
         }
         "context_bar" => {
-            let all: &[(&str, &str, &str, bool)] = &[
-                ("bar", green, "■■■■□□□□", false),
-                ("pct", green, "🯴🯲٪", false),
-                ("tokens", dim, "42k/100k", true),
-            ];
-            let parts: Vec<(&str, &str)> = components
+            let (bar_fill, bar_empty) = {
+                let fill = widget_icons
+                    .get("bar_fill")
+                    .and_then(|s| s.chars().next())
+                    .unwrap_or('■');
+                let empty = widget_icons
+                    .get("bar_empty")
+                    .and_then(|s| s.chars().next())
+                    .unwrap_or('□');
+                (fill, empty)
+            };
+            let bar_str = format!(
+                "{}{}{}{}{}{}{}{}",
+                bar_fill, bar_fill, bar_fill, bar_fill, bar_empty, bar_empty, bar_empty, bar_empty
+            );
+            let all: &[(&str, bool)] = &[("bar", false), ("pct", false), ("tokens", true)];
+            let parts: Vec<(&str, String)> = components
                 .iter()
                 .filter_map(|c| {
                     all.iter()
-                        .find(|(k, _, _, _)| *k == c.as_str())
-                        .filter(|(_, _, _, compact_hide)| !compact || !compact_hide)
-                        .map(|(_, col, txt, _)| (*col, *txt))
+                        .find(|(k, _)| *k == c.as_str())
+                        .filter(|(_, compact_hide)| !compact || !compact_hide)
+                        .map(|(k, _)| {
+                            let (col, txt) = match *k {
+                                "bar" => (green, bar_str.clone()),
+                                "pct" => (green, "🯴🯲٪".to_string()),
+                                "tokens" => (dim, "42k/100k".to_string()),
+                                _ => unreachable!(),
+                            };
+                            (col, txt)
+                        })
                 })
                 .collect();
             rsx! {
@@ -443,19 +507,32 @@ fn widget_preview(
             }
         }
         "git" => {
-            let all: &[(&str, &str, &str, bool)] = &[
-                ("branch", blue, " main", false),
-                ("staged", green, "•2", true),
-                ("modified", orange, "~1", true),
-                ("repo", dim, "jarvis", true),
+            let branch_icon = resolve_preview_icon(&widget_icons, "branch", "⎇ ").to_string();
+            let staged_icon = resolve_preview_icon(&widget_icons, "staged", "•").to_string();
+            let branch_txt = format!("{branch_icon}main");
+            let staged_txt = format!("{staged_icon}2");
+            let all: &[(&str, bool)] = &[
+                ("branch", false),
+                ("staged", true),
+                ("modified", true),
+                ("repo", true),
             ];
-            let parts: Vec<(&str, &str)> = components
+            let parts: Vec<(&str, String)> = components
                 .iter()
                 .filter_map(|c| {
                     all.iter()
-                        .find(|(k, _, _, _)| *k == c.as_str())
-                        .filter(|(_, _, _, compact_hide)| !compact || !compact_hide)
-                        .map(|(_, col, txt, _)| (*col, *txt))
+                        .find(|(k, _)| *k == c.as_str())
+                        .filter(|(_, compact_hide)| !compact || !compact_hide)
+                        .map(|(k, _)| {
+                            let (col, txt) = match *k {
+                                "branch" => (blue, branch_txt.clone()),
+                                "staged" => (green, staged_txt.clone()),
+                                "modified" => (orange, "~1".to_string()),
+                                "repo" => (dim, "jarvis".to_string()),
+                                _ => unreachable!(),
+                            };
+                            (col, txt)
+                        })
                 })
                 .collect();
             rsx! {
@@ -468,16 +545,36 @@ fn widget_preview(
             }
         }
         "quota" => {
-            let all: &[(&str, &str, &str)] = &[
-                ("five_hour", blue, "5h:▓▓░░ 60%"),
-                ("seven_day", green, "7d:▓▓▓░ 75%"),
-            ];
-            let parts: Vec<(&str, &str)> = components
+            let (quota_fill, quota_empty) = {
+                let fill = widget_icons
+                    .get("quota_fill")
+                    .and_then(|s| s.chars().next());
+                let empty = widget_icons
+                    .get("quota_empty")
+                    .and_then(|s| s.chars().next());
+                let (style_fill, style_empty) = bar_style_chars(&widget_bar_style, '●', '○');
+                (fill.unwrap_or(style_fill), empty.unwrap_or(style_empty))
+            };
+            let five_hour_txt = format!(
+                "5h:{}{}{}{} 60%",
+                quota_fill, quota_fill, quota_empty, quota_empty
+            );
+            let seven_day_txt = format!(
+                "7d:{}{}{}{} 75%",
+                quota_fill, quota_fill, quota_fill, quota_empty
+            );
+            let all: &[(&str, &str)] = &[("five_hour", blue), ("seven_day", green)];
+            let parts: Vec<(&str, String)> = components
                 .iter()
                 .filter_map(|c| {
-                    all.iter()
-                        .find(|(k, _, _)| *k == c.as_str())
-                        .map(|(_, col, txt)| (*col, *txt))
+                    all.iter().find(|(k, _)| *k == c.as_str()).map(|(k, col)| {
+                        let txt = match *k {
+                            "five_hour" => five_hour_txt.clone(),
+                            "seven_day" => seven_day_txt.clone(),
+                            _ => unreachable!(),
+                        };
+                        (*col, txt)
+                    })
                 })
                 .collect();
             rsx! {
@@ -489,9 +586,15 @@ fn widget_preview(
                 }
             }
         }
-        "duration" => rsx! { span { if !compact { "⏱ " } "1h23m" } },
+        "duration" => {
+            let duration_icon = resolve_preview_icon(&widget_icons, "duration", "⏱ ").to_string();
+            rsx! { span { if !compact { "{duration_icon}" } "1h23m" } }
+        }
         "vim" => rsx! { span { style: "color:{purple}", if !compact { " " } "NORMAL" } },
-        "agent" => rsx! { span { style: "color:{orange}", if !compact { "❯ " } "worker-1" } },
+        "agent" => {
+            let agent_icon = resolve_preview_icon(&widget_icons, "agent", "❯ ").to_string();
+            rsx! { span { style: "color:{orange}", if !compact { "{agent_icon}" } "worker-1" } }
+        }
         "session" => rsx! { span { style: "color:{dim}", "a3f9" } },
         _ => {
             // Run plugin to get live preview
@@ -728,6 +831,135 @@ fn ColorInputRow(
     }
 }
 
+// ---- widget color picker ---------------------------------------------------
+
+#[component]
+fn WidgetColorPicker(
+    label: &'static str,
+    value: Option<ColorValue>,
+    palette: ThemePalette,
+    default_role: Option<PaletteRole>,
+    on_change: EventHandler<Option<ColorValue>>,
+) -> Element {
+    let mut custom_open = use_signal(|| false);
+
+    // Resolve the effective ANSI index for the preview swatch.
+    let effective_idx = match &value {
+        Some(ColorValue::Custom(n)) => *n,
+        Some(ColorValue::Role(r)) => palette.resolve(*r),
+        None => match default_role {
+            Some(r) => palette.resolve(r),
+            None => 242,
+        },
+    };
+    let preview_hex = ansi_256_to_hex(effective_idx);
+
+    let has_override = value.is_some();
+
+    rsx! {
+        div { style: "margin-bottom:10px;",
+            // Row 1: label + preview swatch + clear button
+            div { style: "display:flex; align-items:center; gap:6px; margin-bottom:5px;",
+                span { style: "color:#a6adc8; font-size:12px; min-width:90px;", "{label}" }
+                div {
+                    style: "width:16px; height:16px; border-radius:3px; background:{preview_hex}; border:1px solid #45475a; flex-shrink:0;",
+                }
+                if has_override {
+                    button {
+                        style: "background:none; border:none; color:#6c7086; font-size:12px; cursor:pointer; padding:0 2px; line-height:1;",
+                        onclick: move |_| on_change.call(None),
+                        "×"
+                    }
+                }
+            }
+            // Row 2: role swatches + custom toggle
+            div { style: "display:flex; flex-wrap:wrap; gap:4px; align-items:flex-end;",
+                for role in PALETTE_ROLES {
+                    {
+                        let role = *role;
+                        let role_idx = palette.resolve(role);
+                        let role_hex = ansi_256_to_hex(role_idx);
+                        let is_active = matches!(&value, Some(ColorValue::Role(r)) if *r == role);
+                        let is_default_hint = value.is_none() && default_role == Some(role);
+                        let border = if is_active {
+                            "2px solid #ffffff".to_string()
+                        } else if is_default_hint {
+                            "2px dashed #6c7086".to_string()
+                        } else {
+                            "2px solid transparent".to_string()
+                        };
+                        rsx! {
+                            div {
+                                key: "{role.name()}",
+                                style: "display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;",
+                                onclick: move |_| on_change.call(Some(ColorValue::Role(role))),
+                                div {
+                                    style: "width:20px; height:20px; border-radius:4px; background:{role_hex}; border:{border}; box-sizing:border-box;",
+                                }
+                                span { style: "font-size:8px; color:#6c7086;", "{role.label()}" }
+                            }
+                        }
+                    }
+                }
+                // Custom toggle button
+                {
+                    let custom_idx_opt = match &value {
+                        Some(ColorValue::Custom(n)) => Some(*n),
+                        _ => None,
+                    };
+                    let custom_hex = custom_idx_opt
+                        .map(ansi_256_to_hex)
+                        .unwrap_or_else(|| "#45475a".to_string());
+                    let custom_border = if custom_idx_opt.is_some() {
+                        "2px solid #ffffff"
+                    } else {
+                        "2px solid transparent"
+                    };
+                    rsx! {
+                        div {
+                            style: "display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;",
+                            onclick: move |_| custom_open.set(!custom_open()),
+                            div {
+                                style: "width:20px; height:20px; border-radius:4px; background:{custom_hex}; border:{custom_border}; box-sizing:border-box; display:flex; align-items:center; justify-content:center;",
+                                if custom_idx_opt.is_none() {
+                                    span { style: "font-size:10px; color:#6c7086;", "+" }
+                                }
+                            }
+                            span { style: "font-size:8px; color:#6c7086;", "Custom" }
+                        }
+                    }
+                }
+            }
+            // Custom color grid (expanded inline)
+            if custom_open() {
+                div { style: "display:flex; flex-wrap:wrap; gap:3px; margin-top:6px;",
+                    for &idx in CURATED_COLORS {
+                        {
+                            let hex = ansi_256_to_hex(idx);
+                            let is_active = matches!(&value, Some(ColorValue::Custom(n)) if *n == idx);
+                            let border = if is_active {
+                                "2px solid #ffffff"
+                            } else {
+                                "2px solid transparent"
+                            };
+                            rsx! {
+                                div {
+                                    key: "{idx}",
+                                    style: "width:16px; height:16px; border-radius:2px; background:{hex}; cursor:pointer; border:{border}; box-sizing:border-box;",
+                                    onclick: move |_| {
+                                        on_change.call(Some(ColorValue::Custom(idx)));
+                                        custom_open.set(false);
+                                    },
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[component]
 fn IconInputRow(
     label: &'static str,
@@ -789,11 +1021,47 @@ fn CharInputRow(
 }
 
 #[component]
+fn PaletteRoleRow(label: &'static str, current_idx: u8, on_change: EventHandler<u8>) -> Element {
+    let current_hex = ansi_256_to_hex(current_idx);
+    rsx! {
+        div { style: "display:flex; align-items:flex-start; gap:12px; margin-bottom:12px;",
+            // Label + current swatch
+            div { style: "display:flex; align-items:center; gap:8px; width:120px; flex-shrink:0; padding-top:2px;",
+                span { style: "color:#cdd6f4; font-size:12px; width:52px;", "{label}" }
+                div {
+                    style: "width:24px; height:24px; border-radius:4px; background:{current_hex}; border:2px solid #6c7086; flex-shrink:0;",
+                }
+            }
+            // Curated color grid
+            div { style: "display:flex; flex-wrap:wrap; gap:3px;",
+                for &idx in CURATED_COLORS {
+                    {
+                        let hex = ansi_256_to_hex(idx);
+                        let is_active = idx == current_idx;
+                        let border = if is_active {
+                            "2px solid #ffffff"
+                        } else {
+                            "2px solid transparent"
+                        };
+                        rsx! {
+                            div {
+                                key: "{idx}",
+                                style: "width:16px; height:16px; border-radius:2px; background:{hex}; cursor:pointer; border:{border}; box-sizing:border-box;",
+                                onclick: move |_| on_change.call(idx),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
 fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
     let bar_style = config.read().bar_style.clone();
     let use_unicode = config.read().use_unicode_text;
-    let theme = config.read().theme.clone();
-    let icons = config.read().icons.clone();
+    let palette = config.read().palette.clone();
 
     let btn = |active: bool| -> &'static str {
         if active {
@@ -805,132 +1073,62 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
 
     rsx! {
         div {
-            // Theme Colors
+            // Section 1: Theme Presets
             div { style: "margin-bottom:20px;",
-                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Theme Colors" }
-                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:8px 24px;",
-                    ColorInputRow {
-                        label: "Green", value: theme.green, default_idx: 114,
-                        on_change: move |v| { config.write().theme.green = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Orange", value: theme.orange, default_idx: 215,
-                        on_change: move |v| { config.write().theme.orange = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Red", value: theme.red, default_idx: 203,
-                        on_change: move |v| { config.write().theme.red = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim", value: theme.dim, default_idx: 242,
-                        on_change: move |v| { config.write().theme.dim = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Light Gray", value: theme.lgray, default_idx: 250,
-                        on_change: move |v| { config.write().theme.lgray = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Cyan", value: theme.cyan, default_idx: 111,
-                        on_change: move |v| { config.write().theme.cyan = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Purple", value: theme.purple, default_idx: 183,
-                        on_change: move |v| { config.write().theme.purple = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Yellow", value: theme.yellow, default_idx: 228,
-                        on_change: move |v| { config.write().theme.yellow = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim Green", value: theme.dim_green, default_idx: 65,
-                        on_change: move |v| { config.write().theme.dim_green = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim Yellow", value: theme.dim_yellow, default_idx: 136,
-                        on_change: move |v| { config.write().theme.dim_yellow = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim Orange", value: theme.dim_orange, default_idx: 130,
-                        on_change: move |v| { config.write().theme.dim_orange = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim Red", value: theme.dim_red, default_idx: 131,
-                        on_change: move |v| { config.write().theme.dim_red = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim Cyan", value: theme.dim_cyan, default_idx: 67,
-                        on_change: move |v| { config.write().theme.dim_cyan = v; autosave(&config); }
-                    }
-                    ColorInputRow {
-                        label: "Dim Pink", value: theme.dim_pink, default_idx: 175,
-                        on_change: move |v| { config.write().theme.dim_pink = v; autosave(&config); }
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Theme Presets" }
+                div { style: "display:flex; gap:8px; flex-wrap:wrap;",
+                    for &(name, ref preset) in THEME_PRESETS {
+                        {
+                            let is_active = palette == *preset;
+                            let preset_clone = preset.clone();
+                            rsx! {
+                                button {
+                                    key: "{name}",
+                                    style: btn(is_active),
+                                    onclick: move |_| {
+                                        config.write().palette = preset_clone.clone();
+                                        autosave(&config);
+                                    },
+                                    "{name}"
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // Icons
+            // Section 2: Palette Roles
             div { style: "margin-bottom:20px;",
-                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Widget Icons" }
-                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:8px 24px;",
-                    IconInputRow {
-                        label: "Duration", value: icons.duration.clone(), placeholder: "⏱ ",
-                        on_change: move |v| { config.write().icons.duration = v; autosave(&config); }
-                    }
-                    IconInputRow {
-                        label: "Cost", value: icons.cost.clone(), placeholder: "💸 ",
-                        on_change: move |v| { config.write().icons.cost = v; autosave(&config); }
-                    }
-                    IconInputRow {
-                        label: "Git Branch", value: icons.git_branch.clone(), placeholder: "⎇ ",
-                        on_change: move |v| { config.write().icons.git_branch = v; autosave(&config); }
-                    }
-                    IconInputRow {
-                        label: "Git Staged", value: icons.git_staged.clone(), placeholder: "•",
-                        on_change: move |v| { config.write().icons.git_staged = v; autosave(&config); }
-                    }
-                    IconInputRow {
-                        label: "Agent", value: icons.agent.clone(), placeholder: "❯ ",
-                        on_change: move |v| { config.write().icons.agent = v; autosave(&config); }
-                    }
-                    IconInputRow {
-                        label: "Update", value: icons.update.clone(), placeholder: "↑ ",
-                        on_change: move |v| { config.write().icons.update = v; autosave(&config); }
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 10px 0;", "Palette Roles" }
+                for &role in PALETTE_ROLES {
+                    {
+                        let current_idx = palette.resolve(role);
+                        rsx! {
+                            PaletteRoleRow {
+                                key: "{role.name()}",
+                                label: role.label(),
+                                current_idx,
+                                on_change: move |idx: u8| {
+                                    let mut cfg = config.write();
+                                    match role {
+                                        crate::theme::PaletteRole::Primary => cfg.palette.primary = idx,
+                                        crate::theme::PaletteRole::Accent => cfg.palette.accent = idx,
+                                        crate::theme::PaletteRole::Success => cfg.palette.success = idx,
+                                        crate::theme::PaletteRole::Warning => cfg.palette.warning = idx,
+                                        crate::theme::PaletteRole::Danger => cfg.palette.danger = idx,
+                                        crate::theme::PaletteRole::Muted => cfg.palette.muted = idx,
+                                        crate::theme::PaletteRole::Subtle => cfg.palette.subtle = idx,
+                                    }
+                                    drop(cfg);
+                                    autosave(&config);
+                                },
+                            }
+                        }
                     }
                 }
             }
 
-            // Bar Characters
-            div { style: "margin-bottom:20px;",
-                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Bar Characters" }
-                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:8px 24px;",
-                    CharInputRow {
-                        label: "Bar Fill", value: icons.bar_fill, placeholder: '■',
-                        on_change: move |v| { config.write().icons.bar_fill = v; autosave(&config); }
-                    }
-                    CharInputRow {
-                        label: "Bar Empty", value: icons.bar_empty, placeholder: '□',
-                        on_change: move |v| { config.write().icons.bar_empty = v; autosave(&config); }
-                    }
-                    CharInputRow {
-                        label: "Bar Half", value: icons.bar_half, placeholder: '◧',
-                        on_change: move |v| { config.write().icons.bar_half = v; autosave(&config); }
-                    }
-                    CharInputRow {
-                        label: "Quota Fill", value: icons.quota_fill, placeholder: '●',
-                        on_change: move |v| { config.write().icons.quota_fill = v; autosave(&config); }
-                    }
-                    CharInputRow {
-                        label: "Quota Empty", value: icons.quota_empty, placeholder: '○',
-                        on_change: move |v| { config.write().icons.quota_empty = v; autosave(&config); }
-                    }
-                    CharInputRow {
-                        label: "Quota Pace", value: icons.quota_pace, placeholder: '◌',
-                        on_change: move |v| { config.write().icons.quota_pace = v; autosave(&config); }
-                    }
-                }
-            }
-
-            // Bar Style
+            // Section 3: Bar Style
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Bar Style" }
                 div { style: "display:flex; gap:8px;",
@@ -961,7 +1159,7 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                 }
             }
 
-            // Unicode Text
+            // Section 4: Unicode Text
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Unicode Text" }
                 button {
@@ -975,19 +1173,17 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                 }
             }
 
-            // Reset to Defaults
+            // Section 5: Reset
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Reset to Defaults" }
                 button {
                     style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;",
                     onclick: move |_| {
-                        let defaults = StatuslineConfig::default();
                         {
                             let mut cfg = config.write();
-                            cfg.theme = defaults.theme;
-                            cfg.icons = defaults.icons;
-                            cfg.bar_style = defaults.bar_style;
-                            cfg.use_unicode_text = defaults.use_unicode_text;
+                            cfg.palette = ThemePalette::default();
+                            cfg.bar_style = BarStyle::default();
+                            cfg.use_unicode_text = true;
                         }
                         autosave(&config);
                     },
@@ -1725,14 +1921,26 @@ fn WidgetAccordion(
                                             let slot_key = slot.key.to_string();
                                             let default_idx = slot.default_idx;
                                             let label = slot.label;
-                                            let current_val = widget_colors.get(slot.key).copied();
+                                            let current_val: Option<u8> = widget_colors
+                                                .get(slot.key)
+                                                .map(|cv| match cv {
+                                                    crate::types::ColorValue::Custom(n) => *n,
+                                                    crate::types::ColorValue::Role(_) => {
+                                                        slot.default_idx
+                                                    }
+                                                });
                                             rsx! { ColorInputRow { label, value: current_val, default_idx,
                                                 on_change: move |v: Option<u8>| {
                                                     let mut binding = config.write();
                                                     let wc = binding.widgets.entry(wna.clone()).or_default();
                                                     let colors = wc.colors.get_or_insert_with(Default::default);
                                                     match v {
-                                                        Some(idx) => { colors.insert(slot_key.clone(), idx); }
+                                                        Some(idx) => {
+                                                            colors.insert(
+                                                                slot_key.clone(),
+                                                                crate::types::ColorValue::Custom(idx),
+                                                            );
+                                                        }
                                                         None => { colors.remove(&slot_key); }
                                                     }
                                                     if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
