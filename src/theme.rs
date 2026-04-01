@@ -48,7 +48,7 @@ impl Default for Theme {
 }
 
 /// User-facing config: 256-color indices. `None` means "use default".
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ThemeConfig {
     pub green: Option<u8>,
     pub orange: Option<u8>,
@@ -67,6 +67,48 @@ pub struct ThemeConfig {
 }
 
 impl ThemeConfig {
+    #[allow(dead_code)]
+    pub fn get_field(&self, name: &str) -> Option<u8> {
+        match name {
+            "green" => self.green,
+            "orange" => self.orange,
+            "red" => self.red,
+            "dim" => self.dim,
+            "lgray" => self.lgray,
+            "cyan" => self.cyan,
+            "purple" => self.purple,
+            "yellow" => self.yellow,
+            "dim_green" => self.dim_green,
+            "dim_yellow" => self.dim_yellow,
+            "dim_orange" => self.dim_orange,
+            "dim_red" => self.dim_red,
+            "dim_cyan" => self.dim_cyan,
+            "dim_pink" => self.dim_pink,
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn set_field(&mut self, name: &str, value: Option<u8>) {
+        match name {
+            "green" => self.green = value,
+            "orange" => self.orange = value,
+            "red" => self.red = value,
+            "dim" => self.dim = value,
+            "lgray" => self.lgray = value,
+            "cyan" => self.cyan = value,
+            "purple" => self.purple = value,
+            "yellow" => self.yellow = value,
+            "dim_green" => self.dim_green = value,
+            "dim_yellow" => self.dim_yellow = value,
+            "dim_orange" => self.dim_orange = value,
+            "dim_red" => self.dim_red = value,
+            "dim_cyan" => self.dim_cyan = value,
+            "dim_pink" => self.dim_pink = value,
+            _ => {}
+        }
+    }
+
     pub fn to_theme(&self) -> Theme {
         let c = |custom: Option<u8>, fallback: &'static str| -> String {
             match custom {
@@ -97,7 +139,7 @@ impl ThemeConfig {
 }
 
 /// Customizable icon/symbol overrides.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct IconsConfig {
     pub duration: Option<String>,
     pub cost: Option<String>,
@@ -113,8 +155,63 @@ pub struct IconsConfig {
     pub quota_pace: Option<char>,
 }
 
+impl IconsConfig {
+    #[allow(dead_code)]
+    pub fn get_string_field(&self, name: &str) -> Option<&str> {
+        match name {
+            "duration" => self.duration.as_deref(),
+            "cost" => self.cost.as_deref(),
+            "git_branch" => self.git_branch.as_deref(),
+            "git_staged" => self.git_staged.as_deref(),
+            "agent" => self.agent.as_deref(),
+            "update" => self.update.as_deref(),
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn get_char_field(&self, name: &str) -> Option<char> {
+        match name {
+            "bar_fill" => self.bar_fill,
+            "bar_empty" => self.bar_empty,
+            "bar_half" => self.bar_half,
+            "quota_fill" => self.quota_fill,
+            "quota_empty" => self.quota_empty,
+            "quota_pace" => self.quota_pace,
+            _ => None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn set_string_field(&mut self, name: &str, value: Option<String>) {
+        match name {
+            "duration" => self.duration = value,
+            "cost" => self.cost = value,
+            "git_branch" => self.git_branch = value,
+            "git_staged" => self.git_staged = value,
+            "agent" => self.agent = value,
+            "update" => self.update = value,
+            _ => {}
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn set_char_field(&mut self, name: &str, value: Option<char>) {
+        match name {
+            "bar_fill" => self.bar_fill = value,
+            "bar_empty" => self.bar_empty = value,
+            "bar_half" => self.bar_half = value,
+            "quota_fill" => self.quota_fill = value,
+            "quota_empty" => self.quota_empty = value,
+            "quota_pace" => self.quota_pace = value,
+            _ => {}
+        }
+    }
+}
+
 /// Visual style for progress bars.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BarStyle {
     #[default]
     Block,
@@ -345,5 +442,30 @@ mod tests {
         // Bold (\x1b[1m) is not recognized — should be stripped
         let input = "\x1b[1mbold\x1b[0m";
         assert_eq!(ansi_to_html(input), "bold");
+    }
+
+    #[test]
+    fn theme_config_get_set_field() {
+        let mut tc = ThemeConfig::default();
+        assert_eq!(tc.get_field("green"), None);
+        tc.set_field("green", Some(46));
+        assert_eq!(tc.get_field("green"), Some(46));
+        assert_eq!(tc.green, Some(46));
+        tc.set_field("green", None);
+        assert_eq!(tc.get_field("green"), None);
+        // Unknown field is a no-op
+        tc.set_field("nonexistent", Some(99));
+        assert_eq!(tc.get_field("nonexistent"), None);
+    }
+
+    #[test]
+    fn icons_config_get_set_fields() {
+        let mut ic = IconsConfig::default();
+        assert_eq!(ic.get_string_field("cost"), None);
+        ic.set_string_field("cost", Some("$$$".into()));
+        assert_eq!(ic.get_string_field("cost"), Some("$$$"));
+        assert_eq!(ic.get_char_field("bar_fill"), None);
+        ic.set_char_field("bar_fill", Some('X'));
+        assert_eq!(ic.get_char_field("bar_fill"), Some('X'));
     }
 }

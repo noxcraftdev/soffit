@@ -17,7 +17,7 @@ use crate::cache;
 use crate::config::StatuslineConfig;
 use crate::fmt::*;
 use crate::paths;
-use crate::theme::{BarStyle, IconsConfig, Theme};
+use crate::theme::{BarStyle, IconsConfig, Theme, ThemeConfig};
 use crate::types::{InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
 
 pub const AVAILABLE: &[&str] = &[
@@ -39,6 +39,7 @@ pub struct WidgetContext {
     pub compact_size: Option<u64>,
     pub terminal_width: u16,
     pub theme: Theme,
+    pub theme_config: ThemeConfig,
     pub icons: IconsConfig,
     pub bar_style: BarStyle,
     pub use_unicode_text: bool,
@@ -118,6 +119,7 @@ pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContex
         compact_size,
         terminal_width,
         theme: config.theme.to_theme(),
+        theme_config: config.theme.clone(),
         icons: config.icons.clone(),
         bar_style: config.bar_style.clone(),
         use_unicode_text: config.use_unicode_text,
@@ -972,32 +974,103 @@ fn dispatch_widget(
     let compact = cfg.map(|c| c.compact).unwrap_or(false);
     let empty: Vec<String> = vec![];
     let components: &Vec<String> = cfg.map(|c| &c.components).unwrap_or(&empty);
+
+    let has_overrides = cfg.is_some_and(|c| c.has_appearance_overrides());
+
+    // Merge per-widget semantic color/icon slots onto a cloned context. Zero-cost on the common path.
+    let merged;
+    let effective_ctx: &WidgetContext = if has_overrides {
+        use crate::edit::widget_reference::widget_ref;
+        let c = cfg.unwrap();
+        let mut effective_theme_config = ctx.theme_config.clone();
+        if let Some(ref colors) = c.colors {
+            if let Some(wref) = widget_ref(name) {
+                for slot in wref.color_slots {
+                    if let Some(&idx) = colors.get(slot.key) {
+                        effective_theme_config.set_field(slot.theme_field, Some(idx));
+                    }
+                }
+            }
+        }
+        let mut effective_icons = ctx.icons.clone();
+        if let Some(ref icons_map) = c.icons {
+            if let Some(wref) = widget_ref(name) {
+                for slot in wref.icon_slots {
+                    if let Some(val) = icons_map.get(slot.key) {
+                        if slot.is_char {
+                            effective_icons.set_char_field(slot.icons_field, val.chars().next());
+                        } else {
+                            effective_icons.set_string_field(slot.icons_field, Some(val.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        let effective_bar_style = c.bar_style.clone().unwrap_or_else(|| ctx.bar_style.clone());
+        merged = WidgetContext {
+            data: ctx.data.clone(),
+            pct: ctx.pct,
+            input_tokens: ctx.input_tokens,
+            compact_size: ctx.compact_size,
+            terminal_width: ctx.terminal_width,
+            theme: effective_theme_config.to_theme(),
+            theme_config: effective_theme_config,
+            icons: effective_icons,
+            bar_style: effective_bar_style,
+            use_unicode_text: ctx.use_unicode_text,
+        };
+        &merged
+    } else {
+        ctx
+    };
+
     match name {
-        "version" | "model" => render_version(ctx, compact, components),
-        "context_bar" => render_context_bar(ctx, compact, components),
-        "duration" => render_duration(ctx, compact, components),
-        "cost" => render_cost(ctx, compact, components),
+        "version" | "model" => render_version(effective_ctx, compact, components),
+        "context_bar" => render_context_bar(effective_ctx, compact, components),
+        "duration" => render_duration(effective_ctx, compact, components),
+        "cost" => render_cost(effective_ctx, compact, components),
         "git" => widget_git(
-            ctx.data
+            effective_ctx
+                .data
                 .workspace
                 .as_ref()
                 .and_then(|w| w.current_dir.as_deref()),
             compact,
             components,
-            &ctx.theme,
-            &ctx.icons,
+            &effective_ctx.theme,
+            &effective_ctx.icons,
         ),
-        "insights" => render_insights(ctx, compact, components),
-        "vim" => render_vim(ctx, compact, components),
-        "agent" => render_agent(ctx, compact, components),
-        "quota" => render_quota(ctx, compact, components),
-        "session" => render_session(ctx, compact, components),
+        "insights" => render_insights(effective_ctx, compact, components),
+        "vim" => render_vim(effective_ctx, compact, components),
+        "agent" => render_agent(effective_ctx, compact, components),
+        "quota" => render_quota(effective_ctx, compact, components),
+        "session" => render_session(effective_ctx, compact, components),
         other => {
             let plugin_input = serde_json::json!({
-                "data": ctx.data,
+                "data": effective_ctx.data,
                 "config": {
                     "compact": compact,
                     "components": components,
+                    "theme": {
+                        "green": effective_ctx.theme.green,
+                        "orange": effective_ctx.theme.orange,
+                        "red": effective_ctx.theme.red,
+                        "dim": effective_ctx.theme.dim,
+                        "lgray": effective_ctx.theme.lgray,
+                        "cyan": effective_ctx.theme.cyan,
+                        "purple": effective_ctx.theme.purple,
+                        "yellow": effective_ctx.theme.yellow,
+                        "reset": effective_ctx.theme.reset,
+                        "dim_green": effective_ctx.theme.dim_green,
+                        "dim_yellow": effective_ctx.theme.dim_yellow,
+                        "dim_orange": effective_ctx.theme.dim_orange,
+                        "dim_red": effective_ctx.theme.dim_red,
+                        "dim_cyan": effective_ctx.theme.dim_cyan,
+                        "dim_pink": effective_ctx.theme.dim_pink,
+                        "italic": effective_ctx.theme.italic,
+                        "no_italic": effective_ctx.theme.no_italic,
+                    },
+                    "bar_style": effective_ctx.bar_style.to_string(),
                 }
             });
             crate::plugin::run_plugin(other, &plugin_input.to_string())

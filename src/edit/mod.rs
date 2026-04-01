@@ -1,4 +1,4 @@
-mod widget_reference;
+pub mod widget_reference;
 
 use anyhow::Result;
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
@@ -279,7 +279,26 @@ fn widget_preview(
     config: &StatuslineConfig,
 ) -> Element {
     use crate::theme::ansi_256_to_hex;
-    let tc = &config.theme;
+    let merged_tc;
+    let tc = if let Some(wref) = widget_ref(name) {
+        let colors = config.widgets.get(name).and_then(|wc| wc.colors.as_ref());
+        if let Some(colors) = colors {
+            merged_tc = {
+                let mut tc = config.theme.clone();
+                for slot in wref.color_slots {
+                    if let Some(&idx) = colors.get(slot.key) {
+                        tc.set_field(slot.theme_field, Some(idx));
+                    }
+                }
+                tc
+            };
+            &merged_tc
+        } else {
+            &config.theme
+        }
+    } else {
+        &config.theme
+    };
     let dim_s = ansi_256_to_hex(tc.dim.unwrap_or(242));
     let blue_s = ansi_256_to_hex(tc.cyan.unwrap_or(111));
     let green_s = ansi_256_to_hex(tc.green.unwrap_or(114));
@@ -1559,9 +1578,37 @@ fn WidgetAccordion(
         "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:3px; padding:1px 7px; font-size:11px; cursor:pointer;"
     };
 
+    let (widget_colors, widget_icons_map, widget_bar_style, has_appearance_override) = {
+        let cfg = config.read();
+        let wc = cfg.widgets.get(widget_name.as_str());
+        let has_override =
+            wc.is_some_and(|w: &crate::types::WidgetConfig| w.has_appearance_overrides());
+        (
+            wc.and_then(|w| w.colors.clone()).unwrap_or_default(),
+            wc.and_then(|w| w.icons.clone()).unwrap_or_default(),
+            wc.and_then(|w| w.bar_style.clone()),
+            has_override,
+        )
+    };
+
     let wn = widget_name.clone();
     let wn2 = widget_name.clone();
+    let wn_appearance = widget_name.clone();
+    let wn_reset_appearance = widget_name.clone();
     let ac = all_components.clone();
+
+    let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
+    let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
+
+    // Determine if this widget uses bar-style widgets
+    let show_bar_style = matches!(widget_name.as_str(), "context_bar" | "quota");
+
+    let wref_color_slots: &[widget_reference::ColorSlot] = widget_ref(widget_name.as_str())
+        .map(|w| w.color_slots)
+        .unwrap_or(&[]);
+    let wref_icon_slots: &[widget_reference::IconSlot] = widget_ref(widget_name.as_str())
+        .map(|w| w.icon_slots)
+        .unwrap_or(&[]);
 
     rsx! {
         details {
@@ -1591,7 +1638,7 @@ fn WidgetAccordion(
                     span { style: "background:#313244; color:#6c7086; font-size:10px; border-radius:3px; padding:1px 5px;", "custom" }
                 }
             }
-            div { style: "padding:8px 12px 12px;",
+            div { style: "padding:8px 12px 12px; display:flex; flex-direction:column; gap:12px;",
                 if has_components {
                     div {
                         div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Components" }
@@ -1600,7 +1647,6 @@ fn WidgetAccordion(
                             for (idx, comp) in effective_comps.iter().cloned().enumerate() {
                                 CompChip { config, widget_name: wn2.clone(), all_components: ac.clone(), comp_name: comp, comp_idx: idx }
                             }
-                            // Drop zone at end of component list
                             div { class: "dnd-drop-zone", "data-comp-drop": "{wn2}" }
                             {
                                 let hidden: Vec<String> = all_components
@@ -1652,6 +1698,192 @@ fn WidgetAccordion(
                                         "reset order"
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+
+                // Appearance section
+                details {
+                    style: "border:1px solid #313244; border-radius:4px; background:#11111b;",
+                    summary {
+                        style: "padding:6px 10px; cursor:pointer; font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; list-style:none; user-select:none;",
+                        "Appearance"
+                        if has_appearance_override {
+                            span { style: "margin-left:6px; background:#313244; color:#89b4fa; font-size:10px; border-radius:3px; padding:1px 5px;", "overrides" }
+                        }
+                    }
+                    div { style: "padding:10px;",
+                        // Semantic color slots for this widget
+                        if !wref_color_slots.is_empty() {
+                            div { style: "margin-bottom:10px;",
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors (leave blank to inherit global)" }
+                                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:6px 20px;",
+                                    for slot in wref_color_slots.iter() {
+                                        {
+                                            let wna = wn_appearance.clone();
+                                            let slot_key = slot.key.to_string();
+                                            let default_idx = slot.default_idx;
+                                            let label = slot.label;
+                                            let current_val = widget_colors.get(slot.key).copied();
+                                            rsx! { ColorInputRow { label, value: current_val, default_idx,
+                                                on_change: move |v: Option<u8>| {
+                                                    let mut binding = config.write();
+                                                    let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                    let colors = wc.colors.get_or_insert_with(Default::default);
+                                                    match v {
+                                                        Some(idx) => { colors.insert(slot_key.clone(), idx); }
+                                                        None => { colors.remove(&slot_key); }
+                                                    }
+                                                    if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
+                                                        wc.colors = None;
+                                                    }
+                                                    drop(binding);
+                                                    autosave(&config);
+                                                }
+                                            }}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Semantic icon slots for this widget
+                        if !wref_icon_slots.is_empty() {
+                            div { style: "margin-bottom:10px;",
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Icons" }
+                                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:6px 20px;",
+                                    for slot in wref_icon_slots.iter() {
+                                        if slot.is_char {
+                                            {
+                                                let wna = wn_appearance.clone();
+                                                let slot_key = slot.key.to_string();
+                                                let label = slot.label;
+                                                let placeholder: char = slot.default_value.chars().next().unwrap_or(' ');
+                                                let current_val = widget_icons_map.get(slot.key).and_then(|s| s.chars().next());
+                                                rsx! { CharInputRow { label, value: current_val, placeholder,
+                                                    on_change: move |v: Option<char>| {
+                                                        let mut binding = config.write();
+                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                        let icons = wc.icons.get_or_insert_with(Default::default);
+                                                        match v {
+                                                            Some(c) => { icons.insert(slot_key.clone(), c.to_string()); }
+                                                            None => { icons.remove(&slot_key); }
+                                                        }
+                                                        if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
+                                                            wc.icons = None;
+                                                        }
+                                                        drop(binding);
+                                                        autosave(&config);
+                                                    }
+                                                }}
+                                            }
+                                        } else {
+                                            {
+                                                let wna = wn_appearance.clone();
+                                                let slot_key = slot.key.to_string();
+                                                let label = slot.label;
+                                                let placeholder = slot.default_value;
+                                                let current_val = widget_icons_map.get(slot.key).cloned();
+                                                rsx! { IconInputRow { label, value: current_val, placeholder,
+                                                    on_change: move |v: Option<String>| {
+                                                        let mut binding = config.write();
+                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                        let icons = wc.icons.get_or_insert_with(Default::default);
+                                                        match v {
+                                                            Some(s) => { icons.insert(slot_key.clone(), s); }
+                                                            None => { icons.remove(&slot_key); }
+                                                        }
+                                                        if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
+                                                            wc.icons = None;
+                                                        }
+                                                        drop(binding);
+                                                        autosave(&config);
+                                                    }
+                                                }}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bar style override (context_bar and quota only)
+                        if show_bar_style {
+                            div { style: "margin-bottom:10px;",
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Bar Style" }
+                                div { style: "display:flex; gap:6px;",
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        rsx! {
+                                            button {
+                                                style: if widget_bar_style.is_none() { btn_active } else { btn_inactive },
+                                                onclick: move |_| {
+                                                    if let Some(wc) = config.write().widgets.get_mut(&wna) {
+                                                        wc.bar_style = None;
+                                                    }
+                                                    autosave(&config);
+                                                },
+                                                "Inherit"
+                                            }
+                                        }
+                                    }
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        rsx! {
+                                            button {
+                                                style: if widget_bar_style == Some(crate::theme::BarStyle::Block) { btn_active } else { btn_inactive },
+                                                onclick: move |_| {
+                                                    config.write().widgets.entry(wna.clone()).or_default().bar_style = Some(crate::theme::BarStyle::Block);
+                                                    autosave(&config);
+                                                },
+                                                "Block"
+                                            }
+                                        }
+                                    }
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        rsx! {
+                                            button {
+                                                style: if widget_bar_style == Some(crate::theme::BarStyle::Dot) { btn_active } else { btn_inactive },
+                                                onclick: move |_| {
+                                                    config.write().widgets.entry(wna.clone()).or_default().bar_style = Some(crate::theme::BarStyle::Dot);
+                                                    autosave(&config);
+                                                },
+                                                "Dot"
+                                            }
+                                        }
+                                    }
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        rsx! {
+                                            button {
+                                                style: if widget_bar_style == Some(crate::theme::BarStyle::Ascii) { btn_active } else { btn_inactive },
+                                                onclick: move |_| {
+                                                    config.write().widgets.entry(wna.clone()).or_default().bar_style = Some(crate::theme::BarStyle::Ascii);
+                                                    autosave(&config);
+                                                },
+                                                "Ascii"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Reset appearance button
+                        if has_appearance_override {
+                            button {
+                                style: "background:transparent; border:none; color:#f38ba8; font-size:12px; cursor:pointer; text-decoration:underline;",
+                                onclick: move |_| {
+                                    if let Some(wc) = config.write().widgets.get_mut(&wn_reset_appearance) {
+                                        wc.colors = None;
+                                        wc.icons = None;
+                                        wc.bar_style = None;
+                                    }
+                                    autosave(&config);
+                                },
+                                "Reset appearance"
                             }
                         }
                     }

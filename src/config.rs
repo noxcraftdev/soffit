@@ -163,6 +163,18 @@ impl StatuslineConfig {
                 "components".to_string(),
                 toml::Value::try_from(wc.components.clone())?,
             );
+            if let Some(ref colors) = wc.colors {
+                wc_table.insert("colors".to_string(), toml::Value::try_from(colors.clone())?);
+            }
+            if let Some(ref icons) = wc.icons {
+                wc_table.insert("icons".to_string(), toml::Value::try_from(icons.clone())?);
+            }
+            if let Some(ref bar_style) = wc.bar_style {
+                wc_table.insert(
+                    "bar_style".to_string(),
+                    toml::Value::try_from(bar_style.clone())?,
+                );
+            }
             widgets_table.insert(name.to_string(), toml::Value::Table(wc_table));
         }
         table.insert(
@@ -499,6 +511,72 @@ mod tests {
             !raw.contains("use_unicode_text"),
             "Default use_unicode_text=true should not be written: {raw}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn per_widget_colors_round_trip() -> Result<()> {
+        let mut f = NamedTempFile::new()?;
+        writeln!(
+            f,
+            "[statusline_widgets.cost]\ncompact = true\ncomponents = [\"session\"]\n\n[statusline_widgets.cost.colors]\nwithin_budget = 46\nover_budget = 196"
+        )?;
+        let config = load_from_path(f.path())?;
+        let cost_cfg = config.widgets.get("cost").expect("cost widget config");
+        assert!(cost_cfg.compact);
+        let colors = cost_cfg.colors.as_ref().expect("per-widget colors");
+        assert_eq!(colors.get("within_budget"), Some(&46));
+        assert_eq!(colors.get("over_budget"), Some(&196));
+        assert_eq!(colors.get("approaching"), None);
+        save_to_path(&config, f.path())?;
+        let reloaded = load_from_path(f.path())?;
+        let colors2 = reloaded
+            .widgets
+            .get("cost")
+            .and_then(|c| c.colors.as_ref())
+            .expect("per-widget colors after round-trip");
+        assert_eq!(colors2.get("within_budget"), Some(&46));
+        assert_eq!(colors2.get("over_budget"), Some(&196));
+        Ok(())
+    }
+
+    #[test]
+    fn per_widget_icons_round_trip() -> Result<()> {
+        let mut f = NamedTempFile::new()?;
+        writeln!(
+            f,
+            "[statusline_widgets.cost]\ncompact = false\n\n[statusline_widgets.cost.icons]\ncost = \"$$$\""
+        )?;
+        let config = load_from_path(f.path())?;
+        let icons = config
+            .widgets
+            .get("cost")
+            .and_then(|c| c.icons.as_ref())
+            .expect("per-widget icons");
+        assert_eq!(icons.get("cost").map(|s| s.as_str()), Some("$$$"));
+        save_to_path(&config, f.path())?;
+        let reloaded = load_from_path(f.path())?;
+        let icons2 = reloaded
+            .widgets
+            .get("cost")
+            .and_then(|c| c.icons.as_ref())
+            .expect("per-widget icons");
+        assert_eq!(icons2.get("cost").map(|s| s.as_str()), Some("$$$"));
+        Ok(())
+    }
+
+    #[test]
+    fn widget_without_overrides_has_none() -> Result<()> {
+        let mut f = NamedTempFile::new()?;
+        writeln!(
+            f,
+            "[statusline_widgets.git]\ncompact = true\ncomponents = [\"branch\"]"
+        )?;
+        let config = load_from_path(f.path())?;
+        let git_cfg = config.widgets.get("git").expect("git widget config");
+        assert!(git_cfg.colors.is_none());
+        assert!(git_cfg.icons.is_none());
+        assert!(git_cfg.bar_style.is_none());
         Ok(())
     }
 }

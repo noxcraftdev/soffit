@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::theme::BarStyle;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq)]
 pub struct WidgetConfig {
@@ -7,9 +11,21 @@ pub struct WidgetConfig {
     pub compact: bool,
     #[serde(default)]
     pub components: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colors: Option<HashMap<String, u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icons: Option<HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bar_style: Option<BarStyle>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+impl WidgetConfig {
+    pub fn has_appearance_overrides(&self) -> bool {
+        self.colors.is_some() || self.icons.is_some() || self.bar_style.is_some()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct StdinData {
     pub session_id: Option<String>,
@@ -23,13 +39,13 @@ pub struct StdinData {
     pub rate_limits: Option<RateLimits>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct ModelInfo {
     pub display_name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct ContextWindow {
     pub used_percentage: Option<f64>,
@@ -37,7 +53,7 @@ pub struct ContextWindow {
     pub current_usage: Option<CurrentUsage>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct CurrentUsage {
     pub input_tokens: Option<u64>,
@@ -45,39 +61,39 @@ pub struct CurrentUsage {
     pub cache_read_input_tokens: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct CostInfo {
     pub total_duration_ms: Option<u64>,
     pub total_cost_usd: Option<f64>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct WorkspaceInfo {
     pub current_dir: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct VimInfo {
     pub mode: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct AgentInfo {
     pub name: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct RateLimits {
     pub five_hour: Option<RateLimit>,
     pub seven_day: Option<RateLimit>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 #[serde(default)]
 pub struct RateLimit {
     pub used_percentage: Option<f64>,
