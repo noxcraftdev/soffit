@@ -1,6 +1,7 @@
 pub mod widget_reference;
 
 use anyhow::Result;
+#[cfg(feature = "desktop")]
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
 
@@ -15,19 +16,16 @@ use widget_reference::{component_desc, widget_ref, WIDGETS};
 
 // ---- entry point -----------------------------------------------------------
 
-const CUSTOM_HEAD: &str = r#"
-<style>
-html, body { margin:0; padding:0; overflow:hidden; background:#1e1e2e; }
+const CUSTOM_HEAD_CSS: &str = r#"html, body { margin:0; padding:0; overflow:hidden; background:#1e1e2e; }
 body.dnd-active, body.dnd-active * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
 body.dnd-active select, body.dnd-active input, body.dnd-active textarea, body.dnd-active button { pointer-events: none !important; }
 .dnd-src { opacity: 0.3 !important; }
 .dnd-target { border-left: 3px solid #89b4fa !important; }
 .dnd-row-target { border-color: #89b4fa !important; background: #1e1e3e !important; }
 .dnd-drop-zone { width:64px; height:28px; border-radius:4px; flex-shrink:0; }
-body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px dashed rgba(137,180,250,0.3); }
-</style>
-<script>
-(function() {
+body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px dashed rgba(137,180,250,0.3); }"#;
+
+const CUSTOM_HEAD_JS: &str = r#"(function() {
   // ---- Line chip drag/drop ----
   var lineSrc = null;
   document.addEventListener('mousedown', function(e) {
@@ -56,11 +54,9 @@ body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px 
     var target = null;
     var chip = e.target.closest('[data-dnd]');
     if (chip) {
-      // Over a chip: drop before it (unless it's the source chip)
       var chipId = chip.getAttribute('data-dnd');
       if (chipId !== lineSrc) target = chipId;
     } else {
-      // Not over any chip: check for drop zone or row empty space = append
       var row = e.target.closest('[data-drop-line]');
       if (row) target = 'append:' + row.getAttribute('data-drop-line');
     }
@@ -106,7 +102,6 @@ body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px 
       var tgtWidget = chip.getAttribute('data-comp-dnd').split(':')[0];
       if (srcWidget === tgtWidget) target = chip.getAttribute('data-comp-dnd');
     } else {
-      // Drop on component container = append to end
       var zone = e.target.closest('[data-comp-drop]');
       if (zone) {
         var srcWidget = compSrc.split(':')[0];
@@ -120,15 +115,17 @@ body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px 
     if (target) window.__compDndResult = compSrc + '>' + target;
     compSrc = null;
   }, true);
-})();
-</script>
-"#;
+})();"#;
 
+#[cfg(feature = "desktop")]
 pub fn run() -> Result<()> {
     dioxus::LaunchBuilder::new()
         .with_cfg(
             Config::default()
-                .with_custom_head(CUSTOM_HEAD.to_string())
+                .with_custom_head(format!(
+                    "<style>{}</style><script>{}</script>",
+                    CUSTOM_HEAD_CSS, CUSTOM_HEAD_JS
+                ))
                 .with_window(
                     WindowBuilder::new()
                         .with_title("Soffit")
@@ -284,13 +281,9 @@ fn resolve_preview_icon<'a>(
     icons.get(key).map(|s| s.as_str()).unwrap_or(default)
 }
 
-fn bar_style_chars(
-    bar_style: &crate::theme::BarStyle,
-    fill_default: char,
-    empty_default: char,
-) -> (char, char) {
+fn bar_style_chars(bar_style: &crate::theme::BarStyle) -> (char, char) {
     match bar_style {
-        crate::theme::BarStyle::Block => (fill_default, empty_default),
+        crate::theme::BarStyle::Block => ('■', '□'),
         crate::theme::BarStyle::Dot => ('●', '○'),
         crate::theme::BarStyle::Ascii => ('#', '-'),
     }
@@ -304,19 +297,32 @@ fn widget_preview(
 ) -> Element {
     use crate::theme::ansi_256_to_hex;
     let merged_tc;
+    let palette_non_default = config.palette != crate::theme::ThemePalette::default();
     let tc = if let Some(wref) = widget_ref(name) {
         let colors = config.widgets.get(name).and_then(|wc| wc.colors.as_ref());
-        if let Some(colors) = colors {
+        let needs_merge = colors.is_some() || (palette_non_default && !wref.color_slots.is_empty());
+        if needs_merge {
             merged_tc = {
                 use crate::types::ColorValue;
                 let mut tc = config.theme.clone();
-                for slot in wref.color_slots {
-                    if let Some(color_val) = colors.get(slot.key) {
-                        let idx = match color_val {
-                            ColorValue::Custom(n) => *n,
-                            ColorValue::Role(r) => config.palette.resolve(*r),
-                        };
-                        tc.set_field(slot.theme_field, Some(idx));
+                // Apply palette default roles first
+                if palette_non_default {
+                    for slot in wref.color_slots {
+                        if let Some(role) = slot.default_role {
+                            tc.set_field(slot.theme_field, Some(config.palette.resolve(role)));
+                        }
+                    }
+                }
+                // Explicit per-widget overrides take precedence
+                if let Some(colors) = colors {
+                    for slot in wref.color_slots {
+                        if let Some(color_val) = colors.get(slot.key) {
+                            let idx = match color_val {
+                                ColorValue::Custom(n) => *n,
+                                ColorValue::Role(r) => config.palette.resolve(*r),
+                            };
+                            tc.set_field(slot.theme_field, Some(idx));
+                        }
                     }
                 }
                 tc
@@ -464,7 +470,7 @@ fn widget_preview(
             }
         }
         "context_bar" => {
-            let (bar_fill, bar_empty) = bar_style_chars(&widget_bar_style, '■', '□');
+            let (bar_fill, bar_empty) = bar_style_chars(&widget_bar_style);
             let bar_str = format!(
                 "{}{}{}{}{}{}{}{}",
                 bar_fill, bar_fill, bar_fill, bar_fill, bar_empty, bar_empty, bar_empty, bar_empty
@@ -535,7 +541,7 @@ fn widget_preview(
             }
         }
         "quota" => {
-            let (quota_fill, quota_empty) = bar_style_chars(&widget_bar_style, '●', '○');
+            let (quota_fill, quota_empty) = bar_style_chars(&widget_bar_style);
             let five_hour_txt = format!(
                 "5h:{}{}{}{} 60%",
                 quota_fill, quota_fill, quota_empty, quota_empty
@@ -617,13 +623,15 @@ fn preview_line(widgets: &[String], config: &StatuslineConfig) -> Element {
 // ---- root component --------------------------------------------------------
 
 #[component]
-fn App() -> Element {
+pub fn App() -> Element {
     let config_init = StatuslineConfig::load().unwrap_or_default();
     let mut config = use_signal(|| config_init);
     let mut active_tab = use_signal(|| Tab::Lines);
     let plugin_metas = use_signal(plugin::list_plugin_metas);
 
+    #[cfg(feature = "desktop")]
     let window = dioxus::desktop::use_window();
+    #[cfg(feature = "desktop")]
     let window_close = window.clone();
 
     let tab = *active_tab.read();
@@ -723,12 +731,18 @@ fn App() -> Element {
             // Title bar
             div {
                 style: "height:32px; flex-shrink:0; cursor:grab; background:#181825; border-bottom:1px solid #313244; display:flex; align-items:center; justify-content:flex-end; padding:0 10px; user-select:none; position:relative;",
-                onmousedown: move |_| window.drag(),
+                onmousedown: move |_| {
+                    #[cfg(feature = "desktop")]
+                    window.drag();
+                },
                 span { style: "font-size:12px; color:#cdd6f4; letter-spacing:0.03em; position:absolute; left:50%; transform:translateX(-50%);", "Soffit" }
                 button {
                     style: "background:none; border:none; color:#6c7086; font-size:16px; cursor:pointer; padding:2px 6px; line-height:1;",
                     onmousedown: move |evt: MouseEvent| evt.stop_propagation(),
-                    onclick: move |_| window_close.close(),
+                    onclick: move |_| {
+                        #[cfg(feature = "desktop")]
+                        window_close.close();
+                    },
                     "×"
                 }
             }
@@ -1318,7 +1332,7 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
             p { style: "color:#6c7086; font-size:12px; margin:0 0 12px;",
                 "Reorder or hide components per widget. Compact strips labels and separators."
             }
-            for w in WIDGETS.iter().filter(|w| !w.default_components.is_empty() || w.has_compact) {
+            for w in WIDGETS.iter().filter(|w| !w.default_components.is_empty() || w.has_compact || !w.color_slots.is_empty() || !w.icon_slots.is_empty()) {
                 WidgetAccordion {
                     config,
                     widget_name: w.name.to_string(),
@@ -1418,17 +1432,22 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                             button {
                                 style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 12px; font-size:13px; cursor:pointer;",
                                 onclick: move |_| {
-                                    let file = rfd::FileDialog::new()
-                                        .set_title("Import plugin binary or script")
-                                        .pick_file();
-                                    if let Some(path) = file {
-                                        match plugin::import_plugin(&path) {
-                                            Ok(_) => {
-                                                plugin_metas.set(plugin::list_plugin_metas());
-                                                show_create_form.set(false);
-                                                create_error.set(String::new());
+                                    #[cfg(feature = "desktop")]
+                                    {
+                                        let file = rfd::FileDialog::new()
+                                            .set_title("Import plugin binary or script")
+                                            .pick_file();
+                                        if let Some(path) = file {
+                                            match plugin::import_plugin(&path) {
+                                                Ok(_) => {
+                                                    plugin_metas.set(plugin::list_plugin_metas());
+                                                    show_create_form.set(false);
+                                                    create_error.set(String::new());
+                                                }
+                                                Err(e) => {
+                                                    create_error.set(format!("Import failed: {e}"))
+                                                }
                                             }
-                                            Err(e) => create_error.set(format!("Import failed: {e}")),
                                         }
                                     }
                                 },
@@ -2003,6 +2022,7 @@ fn WidgetAccordion(
                                     {
                                         let wna = wn_appearance.clone();
                                         let slot_key = slot.key.to_string();
+                                        let slot_key_for_closure = slot_key.clone();
                                         let label = slot.label;
                                         let default_role = slot.default_role;
                                         let current_val: Option<ColorValue> =
@@ -2019,8 +2039,8 @@ fn WidgetAccordion(
                                                     let wc = binding.widgets.entry(wna.clone()).or_default();
                                                     let colors = wc.colors.get_or_insert_with(Default::default);
                                                     match v {
-                                                        Some(cv) => { colors.insert(slot_key.clone(), cv); }
-                                                        None => { colors.remove(&slot_key); }
+                                                        Some(cv) => { colors.insert(slot_key_for_closure.clone(), cv); }
+                                                        None => { colors.remove(&slot_key_for_closure); }
                                                     }
                                                     if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
                                                         wc.colors = None;

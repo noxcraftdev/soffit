@@ -209,8 +209,9 @@ pub fn usage_bar(
     };
 
     let empty_ch = match bar_style {
+        BarStyle::Block => icons.quota_empty.unwrap_or('□'),
+        BarStyle::Dot => icons.quota_empty.unwrap_or('○'),
         BarStyle::Ascii => icons.quota_empty.unwrap_or('-'),
-        _ => icons.quota_empty.unwrap_or('○'),
     };
     let pace_ch = icons.quota_pace.unwrap_or('◌');
 
@@ -261,11 +262,11 @@ fn quota_fill_char(bar_style: &BarStyle, icons: &IconsConfig, zone_f: f64) -> ch
     match bar_style {
         BarStyle::Block => {
             if zone_f < 0.33 {
-                '◎'
+                '░'
             } else if zone_f < 0.66 {
-                '◉'
+                '▓'
             } else {
-                '●'
+                '■'
             }
         }
         BarStyle::Dot => '●',
@@ -658,7 +659,7 @@ mod tests {
         // fill at 80%, pace at 50% -- ahead of pace, should show no pace marker in filled zone
         let (bar, _col) = usage_bar(80, 10, &t.cyan, Some(50.0), &t, &BarStyle::default(), &i);
         // pace marker should not appear (it's in filled zone)
-        assert!(bar.contains('●') || bar.contains('◉') || bar.contains('◎'));
+        assert!(bar.contains('■') || bar.contains('▓') || bar.contains('░'));
     }
 
     #[test]

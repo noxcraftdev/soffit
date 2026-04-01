@@ -106,6 +106,12 @@ impl StatuslineConfig {
             .and_then(|v| v.clone().try_into::<ThemePalette>().ok())
             .unwrap_or_default();
 
+        // Ensure every widget in the layout has at least a default config entry
+        let mut widgets = widgets;
+        for name in line1.iter().chain(line2.iter()).chain(line3.iter()) {
+            widgets.entry(name.clone()).or_default();
+        }
+
         Ok(Self {
             line1,
             line2,
