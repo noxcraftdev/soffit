@@ -101,29 +101,7 @@ pub const WIDGETS: &[WidgetRef] = &[
                 default_role: Some(PaletteRole::Muted),
             },
         ],
-        icon_slots: &[
-            IconSlot {
-                key: "bar_fill",
-                label: "Bar Fill",
-                icons_field: "bar_fill",
-                default_value: "■",
-                is_char: true,
-            },
-            IconSlot {
-                key: "bar_empty",
-                label: "Bar Empty",
-                icons_field: "bar_empty",
-                default_value: "□",
-                is_char: true,
-            },
-            IconSlot {
-                key: "bar_half",
-                label: "Bar Half",
-                icons_field: "bar_half",
-                default_value: "◧",
-                is_char: true,
-            },
-        ],
+        icon_slots: &[],
     },
     WidgetRef {
         name: "duration",
@@ -268,29 +246,7 @@ pub const WIDGETS: &[WidgetRef] = &[
                 default_role: Some(PaletteRole::Danger),
             },
         ],
-        icon_slots: &[
-            IconSlot {
-                key: "quota_fill",
-                label: "Fill Char",
-                icons_field: "quota_fill",
-                default_value: "●",
-                is_char: true,
-            },
-            IconSlot {
-                key: "quota_empty",
-                label: "Empty Char",
-                icons_field: "quota_empty",
-                default_value: "○",
-                is_char: true,
-            },
-            IconSlot {
-                key: "quota_pace",
-                label: "Pace Char",
-                icons_field: "quota_pace",
-                default_value: "◌",
-                is_char: true,
-            },
-        ],
+        icon_slots: &[],
     },
     WidgetRef {
         name: "vim",

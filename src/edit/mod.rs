@@ -464,17 +464,7 @@ fn widget_preview(
             }
         }
         "context_bar" => {
-            let (bar_fill, bar_empty) = {
-                let fill = widget_icons
-                    .get("bar_fill")
-                    .and_then(|s| s.chars().next())
-                    .unwrap_or('■');
-                let empty = widget_icons
-                    .get("bar_empty")
-                    .and_then(|s| s.chars().next())
-                    .unwrap_or('□');
-                (fill, empty)
-            };
+            let (bar_fill, bar_empty) = bar_style_chars(&widget_bar_style, '■', '□');
             let bar_str = format!(
                 "{}{}{}{}{}{}{}{}",
                 bar_fill, bar_fill, bar_fill, bar_fill, bar_empty, bar_empty, bar_empty, bar_empty
@@ -545,16 +535,7 @@ fn widget_preview(
             }
         }
         "quota" => {
-            let (quota_fill, quota_empty) = {
-                let fill = widget_icons
-                    .get("quota_fill")
-                    .and_then(|s| s.chars().next());
-                let empty = widget_icons
-                    .get("quota_empty")
-                    .and_then(|s| s.chars().next());
-                let (style_fill, style_empty) = bar_style_chars(&widget_bar_style, '●', '○');
-                (fill.unwrap_or(style_fill), empty.unwrap_or(style_empty))
-            };
+            let (quota_fill, quota_empty) = bar_style_chars(&widget_bar_style, '●', '○');
             let five_hour_txt = format!(
                 "5h:{}{}{}{} 60%",
                 quota_fill, quota_fill, quota_empty, quota_empty
@@ -1022,32 +1003,45 @@ fn CharInputRow(
 
 #[component]
 fn PaletteRoleRow(label: &'static str, current_idx: u8, on_change: EventHandler<u8>) -> Element {
+    let mut expanded = use_signal(|| false);
     let current_hex = ansi_256_to_hex(current_idx);
     rsx! {
-        div { style: "display:flex; align-items:flex-start; gap:12px; margin-bottom:12px;",
-            // Label + current swatch
-            div { style: "display:flex; align-items:center; gap:8px; width:120px; flex-shrink:0; padding-top:2px;",
-                span { style: "color:#cdd6f4; font-size:12px; width:52px;", "{label}" }
+        div { style: "margin-bottom:10px;",
+            // Label + current swatch (clicking swatch toggles grid)
+            div { style: "display:flex; align-items:center; gap:8px;",
+                span { style: "color:#cdd6f4; font-size:12px; min-width:72px;", "{label}" }
                 div {
-                    style: "width:24px; height:24px; border-radius:4px; background:{current_hex}; border:2px solid #6c7086; flex-shrink:0;",
+                    style: "width:24px; height:24px; border-radius:4px; background:{current_hex}; border:2px solid #6c7086; flex-shrink:0; cursor:pointer;",
+                    title: "Click to change",
+                    onclick: move |_| expanded.set(!expanded()),
+                }
+                button {
+                    style: "background:none; border:none; color:#6c7086; font-size:11px; cursor:pointer; padding:0 2px; line-height:1;",
+                    onclick: move |_| expanded.set(!expanded()),
+                    if expanded() { "▲" } else { "▼" }
                 }
             }
-            // Curated color grid
-            div { style: "display:flex; flex-wrap:wrap; gap:3px;",
-                for &idx in CURATED_COLORS {
-                    {
-                        let hex = ansi_256_to_hex(idx);
-                        let is_active = idx == current_idx;
-                        let border = if is_active {
-                            "2px solid #ffffff"
-                        } else {
-                            "2px solid transparent"
-                        };
-                        rsx! {
-                            div {
-                                key: "{idx}",
-                                style: "width:16px; height:16px; border-radius:2px; background:{hex}; cursor:pointer; border:{border}; box-sizing:border-box;",
-                                onclick: move |_| on_change.call(idx),
+            // Curated color grid — only shown when expanded
+            if expanded() {
+                div { style: "display:flex; flex-wrap:wrap; gap:3px; margin-top:6px; padding:6px; background:#11111b; border:1px solid #313244; border-radius:4px;",
+                    for &idx in CURATED_COLORS {
+                        {
+                            let hex = ansi_256_to_hex(idx);
+                            let is_active = idx == current_idx;
+                            let border = if is_active {
+                                "2px solid #ffffff"
+                            } else {
+                                "2px solid transparent"
+                            };
+                            rsx! {
+                                div {
+                                    key: "{idx}",
+                                    style: "width:16px; height:16px; border-radius:2px; background:{hex}; cursor:pointer; border:{border}; box-sizing:border-box;",
+                                    onclick: move |_| {
+                                        on_change.call(idx);
+                                        expanded.set(false);
+                                    },
+                                }
                             }
                         }
                     }
@@ -1774,7 +1768,7 @@ fn WidgetAccordion(
         "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:3px; padding:1px 7px; font-size:11px; cursor:pointer;"
     };
 
-    let (widget_colors, widget_icons_map, widget_bar_style, has_appearance_override) = {
+    let (widget_colors, widget_icons_map, widget_bar_style, has_appearance_override, palette) = {
         let cfg = config.read();
         let wc = cfg.widgets.get(widget_name.as_str());
         let has_override =
@@ -1784,6 +1778,7 @@ fn WidgetAccordion(
             wc.and_then(|w| w.icons.clone()).unwrap_or_default(),
             wc.and_then(|w| w.bar_style.clone()),
             has_override,
+            cfg.palette.clone(),
         )
     };
 
@@ -1913,34 +1908,28 @@ fn WidgetAccordion(
                         // Semantic color slots for this widget
                         if !wref_color_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
-                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors (leave blank to inherit global)" }
-                                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:6px 20px;",
-                                    for slot in wref_color_slots.iter() {
-                                        {
-                                            let wna = wn_appearance.clone();
-                                            let slot_key = slot.key.to_string();
-                                            let default_idx = slot.default_idx;
-                                            let label = slot.label;
-                                            let current_val: Option<u8> = widget_colors
-                                                .get(slot.key)
-                                                .map(|cv| match cv {
-                                                    crate::types::ColorValue::Custom(n) => *n,
-                                                    crate::types::ColorValue::Role(_) => {
-                                                        slot.default_idx
-                                                    }
-                                                });
-                                            rsx! { ColorInputRow { label, value: current_val, default_idx,
-                                                on_change: move |v: Option<u8>| {
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors" }
+                                for slot in wref_color_slots.iter() {
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        let slot_key = slot.key.to_string();
+                                        let label = slot.label;
+                                        let default_role = slot.default_role;
+                                        let current_val: Option<ColorValue> =
+                                            widget_colors.get(slot.key).cloned();
+                                        rsx! {
+                                            WidgetColorPicker {
+                                                key: "{slot_key}",
+                                                label,
+                                                value: current_val,
+                                                palette: palette.clone(),
+                                                default_role,
+                                                on_change: move |v: Option<ColorValue>| {
                                                     let mut binding = config.write();
                                                     let wc = binding.widgets.entry(wna.clone()).or_default();
                                                     let colors = wc.colors.get_or_insert_with(Default::default);
                                                     match v {
-                                                        Some(idx) => {
-                                                            colors.insert(
-                                                                slot_key.clone(),
-                                                                crate::types::ColorValue::Custom(idx),
-                                                            );
-                                                        }
+                                                        Some(cv) => { colors.insert(slot_key.clone(), cv); }
                                                         None => { colors.remove(&slot_key); }
                                                     }
                                                     if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
@@ -1949,7 +1938,7 @@ fn WidgetAccordion(
                                                     drop(binding);
                                                     autosave(&config);
                                                 }
-                                            }}
+                                            }
                                         }
                                     }
                                 }
