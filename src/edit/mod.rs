@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 
 use crate::config::StatuslineConfig;
 use crate::plugin::{self, PluginMeta};
+use crate::theme::BarStyle;
 use widget_reference::{component_desc, widget_ref, WIDGETS};
 
 // ---- entry point -----------------------------------------------------------
@@ -142,6 +143,7 @@ pub fn run() -> Result<()> {
 enum Tab {
     Lines,
     Widgets,
+    Settings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -645,6 +647,7 @@ fn App() -> Element {
                 style: "display:flex; border-bottom:1px solid #313244; background:#181825; flex-shrink:0;",
                 TabButton { label: "Lines", active: tab == Tab::Lines, onclick: move |_| active_tab.set(Tab::Lines) }
                 TabButton { label: "Widgets", active: tab == Tab::Widgets, onclick: move |_| active_tab.set(Tab::Widgets) }
+                TabButton { label: "Settings", active: tab == Tab::Settings, onclick: move |_| active_tab.set(Tab::Settings) }
             }
 
             // Tab content (only scrolling area)
@@ -653,6 +656,7 @@ fn App() -> Element {
                 match tab {
                     Tab::Lines => rsx! { LinesTab { config, plugin_metas } },
                     Tab::Widgets => rsx! { WidgetsTab { config, plugin_metas } },
+                    Tab::Settings => rsx! { SettingsTab { config } },
                 }
             }
         }
@@ -667,6 +671,312 @@ fn TabButton(label: &'static str, active: bool, onclick: EventHandler<MouseEvent
         "padding:8px 16px; cursor:pointer; background:transparent; border:none; color:#6c7086; border-bottom:2px solid transparent; font-size:13px;"
     };
     rsx! { button { style, onclick, "{label}" } }
+}
+
+// ---- settings tab ----------------------------------------------------------
+
+#[component]
+fn ColorInputRow(
+    label: &'static str,
+    value: Option<u8>,
+    default_idx: u8,
+    on_change: EventHandler<Option<u8>>,
+) -> Element {
+    let hex = crate::theme::ansi_256_to_hex(value.unwrap_or(default_idx));
+    let display_val = value.map(|v| v.to_string()).unwrap_or_default();
+    rsx! {
+        div { style: "display:flex; align-items:center; gap:8px;",
+            span { style: "color:#a6adc8; font-size:12px; min-width:80px;", "{label}" }
+            input {
+                r#type: "number",
+                min: "0",
+                max: "255",
+                value: "{display_val}",
+                style: "width:60px; background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:3px; padding:2px 6px; font-size:12px;",
+                oninput: move |evt| {
+                    let raw = evt.value();
+                    if raw.is_empty() {
+                        on_change.call(None);
+                    } else if let Ok(n) = raw.parse::<u8>() {
+                        on_change.call(Some(n));
+                    }
+                }
+            }
+            span {
+                style: "background-color:{hex}; width:16px; height:16px; border-radius:3px; display:inline-block; vertical-align:middle; flex-shrink:0; border:1px solid #45475a;",
+            }
+        }
+    }
+}
+
+#[component]
+fn IconInputRow(
+    label: &'static str,
+    value: Option<String>,
+    placeholder: &'static str,
+    on_change: EventHandler<Option<String>>,
+) -> Element {
+    let display_val = value.unwrap_or_default();
+    rsx! {
+        div { style: "display:flex; align-items:center; gap:8px;",
+            span { style: "color:#a6adc8; font-size:12px; min-width:80px;", "{label}" }
+            input {
+                r#type: "text",
+                value: "{display_val}",
+                placeholder: "{placeholder}",
+                style: "width:80px; background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:3px; padding:2px 6px; font-size:12px;",
+                oninput: move |evt| {
+                    let raw = evt.value();
+                    if raw.is_empty() {
+                        on_change.call(None);
+                    } else {
+                        on_change.call(Some(raw));
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn CharInputRow(
+    label: &'static str,
+    value: Option<char>,
+    placeholder: char,
+    on_change: EventHandler<Option<char>>,
+) -> Element {
+    let display_val = value.map(|c| c.to_string()).unwrap_or_default();
+    let placeholder_str = placeholder.to_string();
+    rsx! {
+        div { style: "display:flex; align-items:center; gap:8px;",
+            span { style: "color:#a6adc8; font-size:12px; min-width:80px;", "{label}" }
+            input {
+                r#type: "text",
+                maxlength: "1",
+                value: "{display_val}",
+                placeholder: "{placeholder_str}",
+                style: "width:60px; background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:3px; padding:2px 6px; font-size:12px;",
+                oninput: move |evt| {
+                    let raw = evt.value();
+                    if raw.is_empty() {
+                        on_change.call(None);
+                    } else {
+                        on_change.call(raw.chars().next());
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
+    let bar_style = config.read().bar_style.clone();
+    let use_unicode = config.read().use_unicode_text;
+    let theme = config.read().theme.clone();
+    let icons = config.read().icons.clone();
+
+    let btn = |active: bool| -> &'static str {
+        if active {
+            "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;"
+        } else {
+            "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;"
+        }
+    };
+
+    rsx! {
+        div {
+            // Theme Colors
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Theme Colors" }
+                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:8px 24px;",
+                    ColorInputRow {
+                        label: "Green", value: theme.green, default_idx: 114,
+                        on_change: move |v| { config.write().theme.green = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Orange", value: theme.orange, default_idx: 215,
+                        on_change: move |v| { config.write().theme.orange = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Red", value: theme.red, default_idx: 203,
+                        on_change: move |v| { config.write().theme.red = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim", value: theme.dim, default_idx: 242,
+                        on_change: move |v| { config.write().theme.dim = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Light Gray", value: theme.lgray, default_idx: 250,
+                        on_change: move |v| { config.write().theme.lgray = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Cyan", value: theme.cyan, default_idx: 111,
+                        on_change: move |v| { config.write().theme.cyan = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Purple", value: theme.purple, default_idx: 183,
+                        on_change: move |v| { config.write().theme.purple = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Yellow", value: theme.yellow, default_idx: 228,
+                        on_change: move |v| { config.write().theme.yellow = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim Green", value: theme.dim_green, default_idx: 65,
+                        on_change: move |v| { config.write().theme.dim_green = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim Yellow", value: theme.dim_yellow, default_idx: 136,
+                        on_change: move |v| { config.write().theme.dim_yellow = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim Orange", value: theme.dim_orange, default_idx: 130,
+                        on_change: move |v| { config.write().theme.dim_orange = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim Red", value: theme.dim_red, default_idx: 131,
+                        on_change: move |v| { config.write().theme.dim_red = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim Cyan", value: theme.dim_cyan, default_idx: 67,
+                        on_change: move |v| { config.write().theme.dim_cyan = v; autosave(&config); }
+                    }
+                    ColorInputRow {
+                        label: "Dim Pink", value: theme.dim_pink, default_idx: 175,
+                        on_change: move |v| { config.write().theme.dim_pink = v; autosave(&config); }
+                    }
+                }
+            }
+
+            // Icons
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Widget Icons" }
+                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:8px 24px;",
+                    IconInputRow {
+                        label: "Duration", value: icons.duration.clone(), placeholder: "⏱ ",
+                        on_change: move |v| { config.write().icons.duration = v; autosave(&config); }
+                    }
+                    IconInputRow {
+                        label: "Cost", value: icons.cost.clone(), placeholder: "💸 ",
+                        on_change: move |v| { config.write().icons.cost = v; autosave(&config); }
+                    }
+                    IconInputRow {
+                        label: "Git Branch", value: icons.git_branch.clone(), placeholder: "⎇ ",
+                        on_change: move |v| { config.write().icons.git_branch = v; autosave(&config); }
+                    }
+                    IconInputRow {
+                        label: "Git Staged", value: icons.git_staged.clone(), placeholder: "•",
+                        on_change: move |v| { config.write().icons.git_staged = v; autosave(&config); }
+                    }
+                    IconInputRow {
+                        label: "Agent", value: icons.agent.clone(), placeholder: "❯ ",
+                        on_change: move |v| { config.write().icons.agent = v; autosave(&config); }
+                    }
+                    IconInputRow {
+                        label: "Update", value: icons.update.clone(), placeholder: "↑ ",
+                        on_change: move |v| { config.write().icons.update = v; autosave(&config); }
+                    }
+                }
+            }
+
+            // Bar Characters
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Bar Characters" }
+                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:8px 24px;",
+                    CharInputRow {
+                        label: "Bar Fill", value: icons.bar_fill, placeholder: '■',
+                        on_change: move |v| { config.write().icons.bar_fill = v; autosave(&config); }
+                    }
+                    CharInputRow {
+                        label: "Bar Empty", value: icons.bar_empty, placeholder: '□',
+                        on_change: move |v| { config.write().icons.bar_empty = v; autosave(&config); }
+                    }
+                    CharInputRow {
+                        label: "Bar Half", value: icons.bar_half, placeholder: '◧',
+                        on_change: move |v| { config.write().icons.bar_half = v; autosave(&config); }
+                    }
+                    CharInputRow {
+                        label: "Quota Fill", value: icons.quota_fill, placeholder: '●',
+                        on_change: move |v| { config.write().icons.quota_fill = v; autosave(&config); }
+                    }
+                    CharInputRow {
+                        label: "Quota Empty", value: icons.quota_empty, placeholder: '○',
+                        on_change: move |v| { config.write().icons.quota_empty = v; autosave(&config); }
+                    }
+                    CharInputRow {
+                        label: "Quota Pace", value: icons.quota_pace, placeholder: '◌',
+                        on_change: move |v| { config.write().icons.quota_pace = v; autosave(&config); }
+                    }
+                }
+            }
+
+            // Bar Style
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Bar Style" }
+                div { style: "display:flex; gap:8px;",
+                    button {
+                        style: btn(bar_style == BarStyle::Block),
+                        onclick: move |_| {
+                            config.write().bar_style = BarStyle::Block;
+                            autosave(&config);
+                        },
+                        "Block"
+                    }
+                    button {
+                        style: btn(bar_style == BarStyle::Dot),
+                        onclick: move |_| {
+                            config.write().bar_style = BarStyle::Dot;
+                            autosave(&config);
+                        },
+                        "Dot"
+                    }
+                    button {
+                        style: btn(bar_style == BarStyle::Ascii),
+                        onclick: move |_| {
+                            config.write().bar_style = BarStyle::Ascii;
+                            autosave(&config);
+                        },
+                        "Ascii"
+                    }
+                }
+            }
+
+            // Unicode Text
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Unicode Text" }
+                button {
+                    style: btn(use_unicode),
+                    onclick: move |_| {
+                        let v = config.read().use_unicode_text;
+                        config.write().use_unicode_text = !v;
+                        autosave(&config);
+                    },
+                    if use_unicode { "Enabled" } else { "Disabled" }
+                }
+            }
+
+            // Reset to Defaults
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Reset to Defaults" }
+                button {
+                    style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;",
+                    onclick: move |_| {
+                        let defaults = StatuslineConfig::default();
+                        {
+                            let mut cfg = config.write();
+                            cfg.theme = defaults.theme;
+                            cfg.icons = defaults.icons;
+                            cfg.bar_style = defaults.bar_style;
+                            cfg.use_unicode_text = defaults.use_unicode_text;
+                        }
+                        autosave(&config);
+                    },
+                    "Reset"
+                }
+            }
+        }
+    }
 }
 
 // ---- lines tab -------------------------------------------------------------
