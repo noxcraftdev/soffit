@@ -986,37 +986,65 @@ fn dispatch_widget(
 
     let has_overrides = cfg.is_some_and(|c| c.has_appearance_overrides());
 
+    // Apply palette default roles even without explicit per-widget color overrides.
+    use crate::edit::widget_reference::widget_ref;
+    let palette_non_default = ctx.palette != ThemePalette::default();
+    let wref = widget_ref(name);
+    let needs_merge =
+        has_overrides || (palette_non_default && wref.is_some_and(|w| !w.color_slots.is_empty()));
+
     // Merge per-widget semantic color/icon slots onto a cloned context. Zero-cost on the common path.
     let merged;
-    let effective_ctx: &WidgetContext = if has_overrides {
-        use crate::edit::widget_reference::widget_ref;
-        let c = cfg.unwrap();
+    let effective_ctx: &WidgetContext = if needs_merge {
         let mut effective_theme_config = ctx.theme_config.clone();
-        if let Some(ref colors) = c.colors {
-            if let Some(wref) = widget_ref(name) {
+
+        // Apply palette default roles for all color slots
+        if palette_non_default {
+            if let Some(wref) = wref {
                 for slot in wref.color_slots {
-                    if let Some(color_val) = colors.get(slot.key) {
-                        let idx = resolve_color(color_val, &ctx.palette);
+                    if let Some(role) = slot.default_role {
+                        let idx = ctx.palette.resolve(role);
                         effective_theme_config.set_field(slot.theme_field, Some(idx));
                     }
                 }
             }
         }
-        let mut effective_icons = ctx.icons.clone();
-        if let Some(ref icons_map) = c.icons {
-            if let Some(wref) = widget_ref(name) {
-                for slot in wref.icon_slots {
-                    if let Some(val) = icons_map.get(slot.key) {
-                        if slot.is_char {
-                            effective_icons.set_char_field(slot.icons_field, val.chars().next());
-                        } else {
-                            effective_icons.set_string_field(slot.icons_field, Some(val.clone()));
+
+        // Explicit per-widget color overrides take precedence over palette defaults
+        if let Some(c) = cfg {
+            if let Some(ref colors) = c.colors {
+                if let Some(wref) = wref {
+                    for slot in wref.color_slots {
+                        if let Some(color_val) = colors.get(slot.key) {
+                            let idx = resolve_color(color_val, &ctx.palette);
+                            effective_theme_config.set_field(slot.theme_field, Some(idx));
                         }
                     }
                 }
             }
         }
-        let effective_bar_style = c.bar_style.clone().unwrap_or_else(|| ctx.bar_style.clone());
+
+        let mut effective_icons = ctx.icons.clone();
+        if let Some(c) = cfg {
+            if let Some(ref icons_map) = c.icons {
+                if let Some(wref) = wref {
+                    for slot in wref.icon_slots {
+                        if let Some(val) = icons_map.get(slot.key) {
+                            if slot.is_char {
+                                effective_icons
+                                    .set_char_field(slot.icons_field, val.chars().next());
+                            } else {
+                                effective_icons
+                                    .set_string_field(slot.icons_field, Some(val.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let effective_bar_style = cfg
+            .and_then(|c| c.bar_style.clone())
+            .unwrap_or_else(|| ctx.bar_style.clone());
         merged = WidgetContext {
             data: ctx.data.clone(),
             pct: ctx.pct,

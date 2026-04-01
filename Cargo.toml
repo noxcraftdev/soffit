@@ -1,6 +1,6 @@
 [package]
 name = "soffit"
-version = "0.0.3"
+version = "0.0.4"
 edition = "2021"
 description = "Customizable statusline manager for Claude Code with desktop editor and plugin system"
 license = "MIT"
@@ -16,16 +16,24 @@ authors = ["Nox Craft"]
 name = "soffit"
 path = "src/main.rs"
 
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop", "dep:rfd"]
+server = ["dioxus/server", "dep:axum", "dep:tokio"]
+web = ["dioxus/web"]
+
 [dependencies]
 anyhow = "1"
+axum = { version = "0.7", optional = true }
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
-dioxus = { version = "0.6", features = ["desktop"] }
+dioxus = { version = "0.6", features = ["fullstack"] }
 libc = "0.2"
 regex = "1"
-rfd = "0.15"
+rfd = { version = "0.15", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tokio = { version = "1", features = ["full"], optional = true }
 toml = "0.8"
 walkdir = "2"
 

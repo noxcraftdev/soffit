@@ -25,7 +25,14 @@ enum Cli {
     /// Render the statusline (reads JSON from stdin)
     Render,
     /// Open the config editor (native desktop GUI)
+    #[cfg(feature = "desktop")]
     Edit,
+    /// Serve the config editor over HTTP for remote access
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "3120")]
+        port: u16,
+    },
     /// List available widgets
     Widgets,
     /// Render a single widget for testing
@@ -67,6 +74,7 @@ fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli {
         Cli::Render => render::run(),
+        #[cfg(feature = "desktop")]
         Cli::Edit => edit::run(),
         Cli::Widgets => {
             for w in widgets::AVAILABLE {
@@ -84,6 +92,7 @@ fn main() -> anyhow::Result<()> {
         Cli::Uninstall { name } => plugin::delete_plugin(&name),
         Cli::Update => update::run(),
         Cli::FetchSelfVersion => fetch_self_version(),
+        Cli::Serve { port: _ } => anyhow::bail!("serve not yet implemented (Phase 2)"),
     }
 }
 
