@@ -126,10 +126,11 @@ pub fn run() -> Result<()> {
                     "<style>{}</style><script>{}</script>",
                     CUSTOM_HEAD_CSS, CUSTOM_HEAD_JS
                 ))
+                .with_menu(None)
                 .with_window(
                     WindowBuilder::new()
                         .with_title("Soffit")
-                        .with_decorations(false)
+                        .with_decorations(true)
                         .with_resizable(true)
                         .with_inner_size(LogicalSize::new(1100.0_f64, 530.0_f64)),
                 ),
@@ -710,13 +711,12 @@ pub fn App() -> Element {
     let mut active_tab = use_signal(|| Tab::Lines);
     let plugin_metas = use_signal(plugin::list_plugin_metas);
 
-    #[cfg(feature = "desktop")]
-    let window = dioxus::desktop::use_window();
-    #[cfg(feature = "desktop")]
-    let window_close = window.clone();
-
     let tab = *active_tab.read();
     let cfg_snap = config.read().clone();
+    let preview_font_family = match &cfg_snap.editor_font {
+        Some(f) => format!("'{f}',monospace"),
+        None => "'JetBrains Mono',Menlo,Consolas,monospace".to_string(),
+    };
 
     // Poll JS for line-level drag/drop results
     use_coroutine::<(), _, _>(move |_rx| async move {
@@ -809,31 +809,12 @@ pub fn App() -> Element {
         div {
             style: "display:flex; flex-direction:column; height:100vh; font-family:system-ui,sans-serif; font-size:14px; background:#1e1e2e; color:#cdd6f4; overflow:hidden;",
 
-            // Title bar
-            div {
-                style: "height:32px; flex-shrink:0; cursor:grab; background:#181825; border-bottom:1px solid #313244; display:flex; align-items:center; justify-content:flex-end; padding:0 10px; user-select:none; position:relative;",
-                onmousedown: move |_| {
-                    #[cfg(feature = "desktop")]
-                    window.drag();
-                },
-                span { style: "font-size:12px; color:#cdd6f4; letter-spacing:0.03em; position:absolute; left:50%; transform:translateX(-50%);", "Soffit" }
-                button {
-                    style: "background:none; border:none; color:#6c7086; font-size:16px; cursor:pointer; padding:2px 6px; line-height:1;",
-                    onmousedown: move |evt: MouseEvent| evt.stop_propagation(),
-                    onclick: move |_| {
-                        #[cfg(feature = "desktop")]
-                        window_close.close();
-                    },
-                    "×"
-                }
-            }
-
             // Preview
             div {
                 style: "padding:12px 16px; flex-shrink:0; border-bottom:1px solid #313244;",
                 div { style: "font-size:10px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Preview" }
                 div {
-                    style: "background:#11111b; border:1px solid #313244; border-radius:6px; padding:10px 14px; font-family:'JetBrains Mono',Menlo,Consolas,monospace; font-size:13px; line-height:1.6;",
+                    style: "background:#11111b; border:1px solid #313244; border-radius:6px; padding:10px 14px; font-family:{preview_font_family}; font-size:13px; line-height:1.6;",
                     div { {preview_line(&cfg_snap.line1, &cfg_snap)} }
                     if !cfg_snap.line2.is_empty() { div { {preview_line(&cfg_snap.line2, &cfg_snap)} } }
                     if !cfg_snap.line3.is_empty() { div { {preview_line(&cfg_snap.line3, &cfg_snap)} } }
@@ -1150,6 +1131,7 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
     let bar_style = config.read().bar_style.clone();
     let use_unicode = config.read().use_unicode_text;
     let palette = config.read().palette.clone();
+    let editor_font = config.read().editor_font.clone();
 
     let btn = |active: bool| -> &'static str {
         if active {
@@ -1188,6 +1170,7 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
             // Section 2: Palette Roles
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 10px 0;", "Palette Roles" }
+                div { style: "display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:4px 24px;",
                 for &role in PALETTE_ROLES {
                     {
                         let current_idx = palette.resolve(role);
@@ -1213,6 +1196,7 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                             }
                         }
                     }
+                }
                 }
             }
 
@@ -1261,7 +1245,57 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                 }
             }
 
-            // Section 5: Reset
+            // Section 5: Editor Font
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Editor Font" }
+                div { style: "display:flex; gap:6px; flex-wrap:wrap; align-items:center;",
+                    {
+                        let font_presets: &[(&str, Option<&str>)] = &[
+                            ("Default", None),
+                            ("JetBrains Mono", Some("JetBrains Mono")),
+                            ("Fira Code", Some("Fira Code")),
+                            ("Cascadia Code", Some("Cascadia Code")),
+                            ("SF Mono", Some("SF Mono")),
+                            ("Menlo", Some("Menlo")),
+                            ("Consolas", Some("Consolas")),
+                        ];
+                        let is_preset = font_presets.iter().any(|(_, v)| v.map(|s| s.to_string()).as_deref() == editor_font.as_deref());
+                        let custom_value = if is_preset { String::new() } else { editor_font.clone().unwrap_or_default() };
+                        rsx! {
+                            for &(label, preset_val) in font_presets {
+                                {
+                                    let is_active = editor_font.as_deref() == preset_val;
+                                    let preset_owned = preset_val.map(|s| s.to_string());
+                                    rsx! {
+                                        button {
+                                            key: "{label}",
+                                            style: btn(is_active),
+                                            onclick: move |_| {
+                                                config.write().editor_font = preset_owned.clone();
+                                                autosave(&config);
+                                            },
+                                            "{label}"
+                                        }
+                                    }
+                                }
+                            }
+                            input {
+                                r#type: "text",
+                                placeholder: "Custom font...",
+                                value: "{custom_value}",
+                                style: "background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 8px; font-size:12px; width:160px;",
+                                oninput: move |evt| {
+                                    let v = evt.value();
+                                    config.write().editor_font = if v.trim().is_empty() { None } else { Some(v) };
+                                    autosave(&config);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 6: Reset
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Reset to Defaults" }
                 button {

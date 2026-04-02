@@ -25,6 +25,7 @@ pub struct StatuslineConfig {
     pub bar_style: BarStyle,
     pub use_unicode_text: bool,
     pub palette: ThemePalette,
+    pub editor_font: Option<String>,
 }
 
 impl Default for StatuslineConfig {
@@ -50,6 +51,7 @@ impl Default for StatuslineConfig {
             bar_style: BarStyle::default(),
             use_unicode_text: true,
             palette: ThemePalette::default(),
+            editor_font: None,
         }
     }
 }
@@ -125,6 +127,10 @@ impl StatuslineConfig {
             bar_style,
             use_unicode_text,
             palette,
+            editor_font: table
+                .get("editor_font")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string()),
         })
     }
 
@@ -248,6 +254,12 @@ impl StatuslineConfig {
             table.insert("use_unicode_text".to_string(), toml::Value::Boolean(false));
         } else {
             table.remove("use_unicode_text");
+        }
+
+        if let Some(ref font) = self.editor_font {
+            table.insert("editor_font".to_string(), toml::Value::String(font.clone()));
+        } else {
+            table.remove("editor_font");
         }
 
         if self.palette != ThemePalette::default() {
