@@ -130,7 +130,7 @@ pub fn run() -> Result<()> {
                     WindowBuilder::new()
                         .with_title("Soffit")
                         .with_decorations(false)
-                        .with_resizable(false)
+                        .with_resizable(true)
                         .with_inner_size(LogicalSize::new(1100.0_f64, 530.0_f64)),
                 ),
         )
@@ -584,17 +584,98 @@ fn widget_preview(
         }
         "session" => rsx! { span { style: "color:{dim}", "a3f9" } },
         _ => {
-            // Run plugin to get live preview
+            // Build palette-aware effective theme, then apply per-widget color overrides.
+            let effective_theme = {
+                let mut etc = tc.clone();
+                if palette_non_default {
+                    if etc.green.is_none() {
+                        etc.green = Some(config.palette.resolve(PaletteRole::Success));
+                    }
+                    if etc.orange.is_none() {
+                        etc.orange = Some(config.palette.resolve(PaletteRole::Warning));
+                    }
+                    if etc.red.is_none() {
+                        etc.red = Some(config.palette.resolve(PaletteRole::Danger));
+                    }
+                    if etc.dim.is_none() {
+                        etc.dim = Some(config.palette.resolve(PaletteRole::Muted));
+                    }
+                    if etc.lgray.is_none() {
+                        etc.lgray = Some(config.palette.resolve(PaletteRole::Subtle));
+                    }
+                    if etc.cyan.is_none() {
+                        etc.cyan = Some(config.palette.resolve(PaletteRole::Primary));
+                    }
+                    if etc.purple.is_none() {
+                        etc.purple = Some(config.palette.resolve(PaletteRole::Accent));
+                    }
+                }
+                if let Some(wmeta) = crate::plugin::widget_meta(name) {
+                    if let Some(wc) = config.widgets.get(name) {
+                        if let Some(ref colors) = wc.colors {
+                            for slot in &wmeta.color_slots {
+                                if let Some(color_val) = colors.get(&slot.key) {
+                                    let idx = match color_val {
+                                        ColorValue::Custom(n) => *n,
+                                        ColorValue::Role(r) => config.palette.resolve(*r),
+                                    };
+                                    etc.set_field(&slot.theme_field, Some(idx));
+                                }
+                            }
+                        }
+                    }
+                }
+                etc.to_theme()
+            };
+            let plugin_icons: serde_json::Value = {
+                let wmeta = crate::plugin::widget_meta(name);
+                let user_icons = config.widgets.get(name).and_then(|wc| wc.icons.as_ref());
+                let mut map = serde_json::Map::new();
+                if let Some(ref wmeta) = wmeta {
+                    for slot in &wmeta.icon_slots {
+                        let val = user_icons
+                            .and_then(|m| m.get(&slot.key))
+                            .cloned()
+                            .unwrap_or_else(|| slot.default_value.clone());
+                        map.insert(slot.key.clone(), serde_json::Value::String(val));
+                    }
+                }
+                serde_json::Value::Object(map)
+            };
             let input = serde_json::json!({
                 "data": {},
-                "config": { "compact": compact, "components": components }
+                "config": {
+                    "compact": compact,
+                    "components": components,
+                    "theme": {
+                        "green": effective_theme.green,
+                        "orange": effective_theme.orange,
+                        "red": effective_theme.red,
+                        "dim": effective_theme.dim,
+                        "lgray": effective_theme.lgray,
+                        "cyan": effective_theme.cyan,
+                        "purple": effective_theme.purple,
+                        "yellow": effective_theme.yellow,
+                        "reset": effective_theme.reset,
+                        "dim_green": effective_theme.dim_green,
+                        "dim_yellow": effective_theme.dim_yellow,
+                        "dim_orange": effective_theme.dim_orange,
+                        "dim_red": effective_theme.dim_red,
+                        "dim_cyan": effective_theme.dim_cyan,
+                        "dim_pink": effective_theme.dim_pink,
+                        "italic": effective_theme.italic,
+                        "no_italic": effective_theme.no_italic,
+                    },
+                    "icons": plugin_icons,
+                    "bar_style": "block",
+                }
             });
             match crate::plugin::run_plugin(name, &input.to_string()) {
                 Some(text) => {
-                    let html = format!("⚙ {}", crate::theme::ansi_to_html(&text));
-                    rsx! { span { style: "color:{orange}", dangerous_inner_html: "{html}" } }
+                    let html = crate::theme::ansi_to_html(&text).to_string();
+                    rsx! { span { dangerous_inner_html: "{html}" } }
                 }
-                None => rsx! { span { style: "color:{orange}", "⚙ {name}" } },
+                None => rsx! { span { style: "color:{orange}", "{name}" } },
             }
         }
     }
@@ -830,7 +911,7 @@ fn ColorInputRow(
 
 #[component]
 fn WidgetColorPicker(
-    label: &'static str,
+    label: String,
     value: Option<ColorValue>,
     palette: ThemePalette,
     default_role: Option<PaletteRole>,
@@ -957,9 +1038,9 @@ fn WidgetColorPicker(
 
 #[component]
 fn IconInputRow(
-    label: &'static str,
+    label: String,
     value: Option<String>,
-    placeholder: &'static str,
+    placeholder: String,
     on_change: EventHandler<Option<String>>,
 ) -> Element {
     let display_val = value.unwrap_or_default();
@@ -986,7 +1067,7 @@ fn IconInputRow(
 
 #[component]
 fn CharInputRow(
-    label: &'static str,
+    label: String,
     value: Option<char>,
     placeholder: char,
     on_change: EventHandler<Option<char>>,
@@ -998,7 +1079,6 @@ fn CharInputRow(
             span { style: "color:#a6adc8; font-size:12px; min-width:80px;", "{label}" }
             input {
                 r#type: "text",
-                maxlength: "1",
                 value: "{display_val}",
                 placeholder: "{placeholder_str}",
                 style: "width:60px; background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:3px; padding:2px 6px; font-size:12px;",
@@ -1310,7 +1390,7 @@ fn AddWidgetSelect(
             }
             for p in plugin_metas.read().iter() {
                 if !current_widgets.contains(&p.name) {
-                    option { value: "{p.name}", "⚙ {p.name} — {p.description}" }
+                    option { value: "{p.name}", "{p.name} — {p.description}" }
                 }
             }
         }
@@ -1342,7 +1422,7 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
             }
             div { style: "margin-top:16px;",
                 div { style: "display:flex; align-items:center; gap:8px; margin-bottom:8px;",
-                    div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em;", "Plugins" }
+                    div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em;", "Custom Widgets" }
                     button {
                         style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:1px 8px; font-size:12px; cursor:pointer; line-height:1.6;",
                         onclick: move |_| {
@@ -1407,12 +1487,12 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                                     let (ext, template) = if lang == "python" {
                                         (
                                             "py",
-                                            format!("#!/usr/bin/env python3\nimport json, sys\ndata = json.load(sys.stdin)\nprint(\"⚙ {name}\")\n"),
+                                            format!("#!/usr/bin/env python3\nimport json, sys\ndata = json.load(sys.stdin)\nprint(\"{name}\")\n"),
                                         )
                                     } else {
                                         (
                                             "sh",
-                                            format!("#!/bin/bash\n# Reads Claude Code JSON from stdin, outputs widget text\necho \"⚙ {name}\"\n"),
+                                            format!("#!/bin/bash\n# Reads Claude Code JSON from stdin, outputs widget text\necho \"{name}\"\n"),
                                         )
                                     };
                                     if let Err(e) = plugin::create_plugin(&name, ext, &template) {
@@ -1435,7 +1515,7 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                                     #[cfg(feature = "desktop")]
                                     {
                                         let file = rfd::FileDialog::new()
-                                            .set_title("Import plugin binary or script")
+                                            .set_title("Import script")
                                             .pick_file();
                                         if let Some(path) = file {
                                             match plugin::import_plugin(&path) {
@@ -1460,388 +1540,12 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                     }
                 }
                 for p in metas.iter() {
-                    PluginAccordion { config, meta: p.clone(), plugin_metas }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn PluginAccordion(
-    config: Signal<StatuslineConfig>,
-    meta: PluginMeta,
-    plugin_metas: Signal<Vec<PluginMeta>>,
-) -> Element {
-    let source_init = plugin::read_plugin_source(&meta.name).unwrap_or_default();
-    let mut source = use_signal(|| source_init);
-    let mut preview_result: Signal<Option<plugin::PluginOutput>> = use_signal(|| None);
-    let mut editing = use_signal(|| false);
-    let mut renaming = use_signal(|| false);
-    let mut rename_value = use_signal(|| meta.name.clone());
-    let mut rename_error = use_signal(String::new);
-
-    let widget_name = meta.name.clone();
-    let all_components = meta.components.clone();
-    let has_compact = meta.has_compact;
-    let has_components = !all_components.is_empty();
-
-    let (compact, current_comps) = {
-        let cfg = config.read();
-        let wc = cfg.widgets.get(widget_name.as_str());
-        (
-            wc.map(|w| w.compact).unwrap_or(false),
-            wc.map(|w| w.components.clone()).unwrap_or_default(),
-        )
-    };
-    let effective_comps: Vec<String> = if current_comps.is_empty() {
-        all_components.clone()
-    } else {
-        current_comps.clone()
-    };
-    let has_custom = !current_comps.is_empty();
-
-    let (widget_bar_style, has_appearance_override) = {
-        let cfg = config.read();
-        let wc = cfg.widgets.get(widget_name.as_str());
-        let bar_style = wc.and_then(|w| w.bar_style.clone());
-        let has_override = bar_style.is_some();
-        (bar_style, has_override)
-    };
-
-    let compact_btn_style = if compact {
-        "background:#89b4fa; color:#1e1e2e; border:none; border-radius:3px; padding:1px 7px; font-size:11px; cursor:pointer; font-weight:bold;"
-    } else {
-        "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:3px; padding:1px 7px; font-size:11px; cursor:pointer;"
-    };
-
-    let wn = widget_name.clone();
-    let wn2 = widget_name.clone();
-    let wn_appearance = widget_name.clone();
-    let ac = all_components.clone();
-    let name_save = widget_name.clone();
-    let name_run = widget_name.clone();
-    let name_delete = widget_name.clone();
-    let name_rename = widget_name.clone();
-    let meta_for_rename = meta.clone();
-
-    rsx! {
-        details {
-            style: "border:1px solid #313244; border-radius:6px; margin-bottom:8px; background:#181825;",
-            summary {
-                style: "display:flex; align-items:center; gap:10px; padding:8px 12px; cursor:pointer; list-style:none; user-select:none;",
-                span { style: "color:#fab387;", "⚙" }
-                span { style: "font-weight:bold; color:#cba6f7; min-width:90px;", "{widget_name}" }
-                span { style: "font-family:monospace; font-size:12px; flex:1;",
-                    {widget_preview(&widget_name, compact, &effective_comps, &config.read())}
-                }
-                if has_compact {
-                    button {
-                        style: compact_btn_style,
-                        onclick: move |evt| {
-                            evt.stop_propagation();
-                            {
-                                let mut cfg = config.write();
-                                let wc = cfg.widgets.entry(wn.clone()).or_default();
-                                wc.compact = !wc.compact;
-                            }
-                            autosave(&config);
-                        },
-                        "compact"
-                    }
-                }
-                if has_custom {
-                    span { style: "background:#313244; color:#6c7086; font-size:10px; border-radius:3px; padding:1px 5px;", "custom" }
-                }
-            }
-            div { style: "padding:8px 12px 12px; display:flex; flex-direction:column; gap:10px;",
-                // Component chips (same as WidgetAccordion)
-                if has_components {
-                    div {
-                        div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Components" }
-                        div {
-                            style: "display:flex; flex-wrap:wrap; gap:6px; align-items:center;",
-                            for (idx, comp) in effective_comps.iter().cloned().enumerate() {
-                                CompChip { config, widget_name: wn2.clone(), all_components: ac.clone(), comp_name: comp, comp_idx: idx }
-                            }
-                            // Drop zone at end of component list
-                            div { class: "dnd-drop-zone", "data-comp-drop": "{wn2}" }
-                            {
-                                let hidden: Vec<String> = all_components
-                                    .iter()
-                                    .filter(|c| !effective_comps.contains(c))
-                                    .cloned()
-                                    .collect();
-                                let wn_add = wn2.clone();
-                                let ac_add = all_components.clone();
-                                if !hidden.is_empty() {
-                                    rsx! {
-                                        select {
-                                            style: "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:2px 6px; font-size:12px; cursor:pointer;",
-                                            onchange: move |evt: Event<FormData>| {
-                                                let comp = evt.value();
-                                                if !comp.is_empty() {
-                                                    {
-                                                        let mut cfg = config.write();
-                                                        let wc = cfg.widgets.entry(wn_add.clone()).or_default();
-                                                        if wc.components.is_empty() {
-                                                            wc.components = ac_add.clone();
-                                                        }
-                                                        if !wc.components.contains(&comp) {
-                                                            wc.components.push(comp);
-                                                        }
-                                                    }
-                                                    autosave(&config);
-                                                }
-                                            },
-                                            option { value: "", disabled: true, selected: true, "+" }
-                                            for comp in hidden { option { value: "{comp}", "{comp}" } }
-                                        }
-                                    }
-                                } else { rsx! {} }
-                            }
-                        }
-                        if has_custom {
-                            {
-                                let wn_reset = wn2.clone();
-                                rsx! {
-                                    button {
-                                        style: "background:transparent; border:none; color:#6c7086; font-size:12px; cursor:pointer; margin-top:4px; text-decoration:underline;",
-                                        onclick: move |_| {
-                                            if let Some(wc) = config.write().widgets.get_mut(&wn_reset) {
-                                                wc.components.clear();
-                                            }
-                                            autosave(&config);
-                                        },
-                                        "reset order"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // Appearance section
-                details {
-                    style: "border:1px solid #313244; border-radius:4px; background:#11111b;",
-                    summary {
-                        style: "padding:6px 10px; cursor:pointer; font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; list-style:none; user-select:none;",
-                        "Appearance"
-                        if has_appearance_override {
-                            span { style: "margin-left:6px; background:#313244; color:#89b4fa; font-size:10px; border-radius:3px; padding:1px 5px;", "overrides" }
-                        }
-                    }
-                    div { style: "padding:10px;",
-                        div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Bar Style" }
-                        div { style: "display:flex; gap:6px;",
-                            {
-                                let wna = wn_appearance.clone();
-                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
-                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
-                                rsx! {
-                                    button {
-                                        style: if widget_bar_style.is_none() { btn_active } else { btn_inactive },
-                                        onclick: move |_| {
-                                            if let Some(wc) = config.write().widgets.get_mut(&wna) {
-                                                wc.bar_style = None;
-                                            }
-                                            autosave(&config);
-                                        },
-                                        "Inherit"
-                                    }
-                                }
-                            }
-                            {
-                                let wna = wn_appearance.clone();
-                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
-                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
-                                rsx! {
-                                    button {
-                                        style: if widget_bar_style == Some(crate::theme::BarStyle::Block) { btn_active } else { btn_inactive },
-                                        onclick: move |_| {
-                                            config.write().widgets.entry(wna.clone()).or_default().bar_style =
-                                                Some(crate::theme::BarStyle::Block);
-                                            autosave(&config);
-                                        },
-                                        "Block"
-                                    }
-                                }
-                            }
-                            {
-                                let wna = wn_appearance.clone();
-                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
-                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
-                                rsx! {
-                                    button {
-                                        style: if widget_bar_style == Some(crate::theme::BarStyle::Dot) { btn_active } else { btn_inactive },
-                                        onclick: move |_| {
-                                            config.write().widgets.entry(wna.clone()).or_default().bar_style =
-                                                Some(crate::theme::BarStyle::Dot);
-                                            autosave(&config);
-                                        },
-                                        "Dot"
-                                    }
-                                }
-                            }
-                            {
-                                let wna = wn_appearance.clone();
-                                let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
-                                let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
-                                rsx! {
-                                    button {
-                                        style: if widget_bar_style == Some(crate::theme::BarStyle::Ascii) { btn_active } else { btn_inactive },
-                                        onclick: move |_| {
-                                            config.write().widgets.entry(wna.clone()).or_default().bar_style =
-                                                Some(crate::theme::BarStyle::Ascii);
-                                            autosave(&config);
-                                        },
-                                        "Ascii"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                // Pencil toggle for deeper editing
-                div { style: "border-top:1px solid #313244; padding-top:8px; display:flex; align-items:center; gap:8px;",
-                    button {
-                        style: if *editing.read() {
-                            "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
-                        } else {
-                            "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
-                        },
-                        onclick: move |_| {
-                            let cur = *editing.read();
-                            editing.set(!cur);
-                        },
-                        "✏ Edit plugin"
-                    }
-                }
-                if *editing.read() {
-                    // Source editor
-                    div {
-                        div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Source" }
-                        textarea {
-                            style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; font-family:monospace; font-size:12px; width:100%; min-height:120px; padding:8px; resize:vertical; box-sizing:border-box;",
-                            value: "{source.read()}",
-                            oninput: move |evt| source.set(evt.value()),
-                        }
-                        button {
-                            style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-top:6px;",
-                            onclick: move |_| {
-                                if let Err(e) = plugin::write_plugin_source(&name_save, &source.read()) {
-                                    eprintln!("write_plugin_source failed: {e}");
-                                } else {
-                                    plugin_metas.set(plugin::list_plugin_metas());
-                                }
-                            },
-                            "Save"
-                        }
-                    }
-                    // Live preview
-                    div {
-                        div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Live Preview" }
-                        button {
-                            style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-bottom:6px;",
-                            onclick: move |_| {
-                                let result = plugin::run_plugin_full(&name_run, &plugin::mock_stdin_json());
-                                preview_result.set(result);
-                            },
-                            "Run"
-                        }
-                        {
-                            let pr = preview_result.read();
-                            let (text, comps) = match pr.as_ref() {
-                                Some(out) => {
-                                    let cfg = config.read();
-                                    let wc_comps = cfg.widgets.get(widget_name.as_str())
-                                        .map(|w| &w.components)
-                                        .filter(|c| !c.is_empty());
-                                    let display = if let Some(ordered) = wc_comps {
-                                        out.compose(ordered, compact)
-                                    } else {
-                                        out.compose(&[], compact)
-                                    };
-                                    (display, &out.components)
-                                }
-                                None => (String::new(), &vec![] as &Vec<String>),
-                            };
-                            let html = crate::theme::ansi_to_html(&text);
-                            rsx! {
-                                div {
-                                    style: "background:#11111b; border:1px solid #313244; border-radius:4px; padding:8px; font-family:monospace; font-size:12px;",
-                                    if html.is_empty() {
-                                        span { style: "color:#6c7086; font-style:italic;", "click Run to preview" }
-                                    } else {
-                                        span { dangerous_inner_html: "{html}" }
-                                    }
-                                }
-                                if !comps.is_empty() {
-                                    div { style: "margin-top:4px;",
-                                        span { style: "color:#6c7086; font-size:11px;", "Detected components: " }
-                                        for c in comps.iter() {
-                                            span { style: "background:#313244; color:#a6e3a1; font-size:11px; border-radius:3px; padding:1px 5px; margin-right:4px;", "{c}" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // Rename + Delete
-                    div { style: "display:flex; gap:8px; align-items:center; flex-wrap:wrap;",
-                        if *renaming.read() {
-                            input {
-                                r#type: "text",
-                                value: "{rename_value.read()}",
-                                style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace;",
-                                oninput: move |evt| rename_value.set(evt.value()),
-                            }
-                            button {
-                                style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
-                                onclick: move |_| {
-                                    let new = rename_value.read().trim().to_string();
-                                    if new == name_rename || new.is_empty() {
-                                        renaming.set(false);
-                                        return;
-                                    }
-                                    match plugin::rename_plugin(&name_rename, &new) {
-                                        Ok(()) => {
-                                            plugin_metas.set(plugin::list_plugin_metas());
-                                            renaming.set(false);
-                                        }
-                                        Err(e) => rename_error.set(format!("{e}")),
-                                    }
-                                },
-                                "Rename"
-                            }
-                            button {
-                                style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
-                                onclick: move |_| renaming.set(false),
-                                "Cancel"
-                            }
-                            if !rename_error.read().is_empty() {
-                                span { style: "color:#f38ba8; font-size:12px;", "{rename_error.read()}" }
-                            }
-                        } else {
-                            button {
-                                style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
-                                onclick: move |_| {
-                                    rename_value.set(meta_for_rename.name.clone());
-                                    renaming.set(true);
-                                },
-                                "Rename"
-                            }
-                            button {
-                                style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
-                                onclick: move |_| {
-                                    if let Err(e) = plugin::delete_plugin(&name_delete) {
-                                        eprintln!("delete_plugin failed: {e}");
-                                    } else {
-                                        plugin_metas.set(plugin::list_plugin_metas());
-                                    }
-                                },
-                                "Delete"
-                            }
-                        }
+                    WidgetAccordion {
+                        config,
+                        widget_name: p.name.clone(),
+                        all_components: p.components.clone(),
+                        has_compact: p.has_compact,
+                        plugin_metas: Some(plugin_metas),
                     }
                 }
             }
@@ -1855,7 +1559,22 @@ fn WidgetAccordion(
     widget_name: String,
     all_components: Vec<String>,
     has_compact: bool,
+    plugin_metas: Option<Signal<Vec<PluginMeta>>>,
 ) -> Element {
+    let is_custom = plugin_metas.is_some();
+
+    let source_init = if is_custom {
+        plugin::read_plugin_source(&widget_name).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let mut source = use_signal(|| source_init);
+    let mut preview_result: Signal<Option<plugin::PluginOutput>> = use_signal(|| None);
+    let mut editing = use_signal(|| false);
+    let mut renaming = use_signal(|| false);
+    let mut rename_value = use_signal(|| widget_name.clone());
+    let mut rename_error = use_signal(String::new);
+
     let (compact, current_comps) = {
         let cfg = config.read();
         let wc = cfg.widgets.get(widget_name.as_str());
@@ -1891,11 +1610,29 @@ fn WidgetAccordion(
         )
     };
 
+    let wmeta = if is_custom {
+        plugin::widget_meta(&widget_name)
+    } else {
+        None
+    };
+    let custom_color_slots = wmeta
+        .as_ref()
+        .map(|m| m.color_slots.clone())
+        .unwrap_or_default();
+    let custom_icon_slots = wmeta
+        .as_ref()
+        .map(|m| m.icon_slots.clone())
+        .unwrap_or_default();
+
     let wn = widget_name.clone();
     let wn2 = widget_name.clone();
     let wn_appearance = widget_name.clone();
     let wn_reset_appearance = widget_name.clone();
     let ac = all_components.clone();
+    let name_save = widget_name.clone();
+    let name_run = widget_name.clone();
+    let name_delete = widget_name.clone();
+    let name_rename = widget_name.clone();
 
     let btn_active = "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;";
     let btn_inactive = "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;";
@@ -2014,7 +1751,7 @@ fn WidgetAccordion(
                         }
                     }
                     div { style: "padding:10px;",
-                        // Semantic color slots for this widget
+                        // Semantic color slots for built-in widgets
                         if !wref_color_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
                                 div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors" }
@@ -2055,7 +1792,7 @@ fn WidgetAccordion(
                             }
                         }
 
-                        // Semantic icon slots for this widget
+                        // Semantic icon slots for built-in widgets
                         if !wref_icon_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
                                 div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Icons" }
@@ -2108,6 +1845,86 @@ fn WidgetAccordion(
                                                         autosave(&config);
                                                     }
                                                 }}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Custom widget color slots (from plugin TOML)
+                        if is_custom && !custom_color_slots.is_empty() {
+                            div { style: "margin-bottom:10px;",
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors" }
+                                for slot in custom_color_slots.iter() {
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        let slot_key = slot.key.clone();
+                                        let slot_key2 = slot.key.clone();
+                                        let label = slot.key.clone();
+                                        let current_val: Option<ColorValue> = widget_colors.get(&slot.key).cloned();
+                                        rsx! {
+                                            WidgetColorPicker {
+                                                key: "{slot_key}",
+                                                label,
+                                                value: current_val,
+                                                palette: palette.clone(),
+                                                default_role: None,
+                                                on_change: move |v: Option<ColorValue>| {
+                                                    let mut binding = config.write();
+                                                    let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                    let colors = wc.colors.get_or_insert_with(Default::default);
+                                                    match v {
+                                                        Some(cv) => { colors.insert(slot_key2.clone(), cv); }
+                                                        None => { colors.remove(&slot_key2); }
+                                                    }
+                                                    if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
+                                                        wc.colors = None;
+                                                    }
+                                                    drop(binding);
+                                                    autosave(&config);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Custom widget icon slots (from plugin TOML)
+                        if is_custom && !custom_icon_slots.is_empty() {
+                            div { style: "margin-bottom:10px;",
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Icons" }
+                                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:6px 20px;",
+                                    for slot in custom_icon_slots.iter() {
+                                        {
+                                            let wna = wn_appearance.clone();
+                                            let slot_key = slot.key.clone();
+                                            let slot_key2 = slot.key.clone();
+                                            let label = slot.key.clone();
+                                            let placeholder = slot.default_value.clone();
+                                            let current_val = widget_icons_map.get(&slot.key).cloned();
+                                            rsx! {
+                                                IconInputRow {
+                                                    key: "{slot_key}",
+                                                    label,
+                                                    value: current_val,
+                                                    placeholder,
+                                                    on_change: move |v: Option<String>| {
+                                                        let mut binding = config.write();
+                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                        let icons = wc.icons.get_or_insert_with(Default::default);
+                                                        match v {
+                                                            Some(s) => { icons.insert(slot_key2.clone(), s); }
+                                                            None => { icons.remove(&slot_key2); }
+                                                        }
+                                                        if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
+                                                            wc.icons = None;
+                                                        }
+                                                        drop(binding);
+                                                        autosave(&config);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -2191,6 +2008,154 @@ fn WidgetAccordion(
                                     autosave(&config);
                                 },
                                 "Reset appearance"
+                            }
+                        }
+                    }
+                }
+
+                // Custom widget editing section
+                if is_custom {
+                    div { style: "border-top:1px solid #313244; padding-top:8px; display:flex; align-items:center; gap:8px;",
+                        button {
+                            style: if *editing.read() {
+                                "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
+                            } else {
+                                "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
+                            },
+                            onclick: move |_| {
+                                let cur = *editing.read();
+                                editing.set(!cur);
+                            },
+                            "✏ Edit source"
+                        }
+                    }
+                    if *editing.read() {
+                        // Source editor
+                        div {
+                            div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Source" }
+                            textarea {
+                                style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; font-family:monospace; font-size:12px; width:100%; min-height:120px; padding:8px; resize:vertical; box-sizing:border-box;",
+                                value: "{source.read()}",
+                                oninput: move |evt| source.set(evt.value()),
+                            }
+                            button {
+                                style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-top:6px;",
+                                onclick: move |_| {
+                                    if let Err(e) = plugin::write_plugin_source(&name_save, &source.read()) {
+                                        eprintln!("write_plugin_source failed: {e}");
+                                    } else if let Some(mut pm) = plugin_metas {
+                                        pm.set(plugin::list_plugin_metas());
+                                    }
+                                },
+                                "Save"
+                            }
+                        }
+                        // Live preview
+                        div {
+                            div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Live Preview" }
+                            button {
+                                style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-bottom:6px;",
+                                onclick: move |_| {
+                                    let result = plugin::run_plugin_full(&name_run, &plugin::mock_stdin_json());
+                                    preview_result.set(result);
+                                },
+                                "Run"
+                            }
+                            {
+                                let pr = preview_result.read();
+                                let (text, comps) = match pr.as_ref() {
+                                    Some(out) => {
+                                        let cfg = config.read();
+                                        let wc_comps = cfg.widgets.get(widget_name.as_str())
+                                            .map(|w| &w.components)
+                                            .filter(|c| !c.is_empty());
+                                        let display = if let Some(ordered) = wc_comps {
+                                            out.compose(ordered, compact)
+                                        } else {
+                                            out.compose(&[], compact)
+                                        };
+                                        (display, &out.components)
+                                    }
+                                    None => (String::new(), &vec![] as &Vec<String>),
+                                };
+                                let html = crate::theme::ansi_to_html(&text);
+                                rsx! {
+                                    div {
+                                        style: "background:#11111b; border:1px solid #313244; border-radius:4px; padding:8px; font-family:monospace; font-size:12px;",
+                                        if html.is_empty() {
+                                            span { style: "color:#6c7086; font-style:italic;", "click Run to preview" }
+                                        } else {
+                                            span { dangerous_inner_html: "{html}" }
+                                        }
+                                    }
+                                    if !comps.is_empty() {
+                                        div { style: "margin-top:4px;",
+                                            span { style: "color:#6c7086; font-size:11px;", "Detected components: " }
+                                            for c in comps.iter() {
+                                                span { style: "background:#313244; color:#a6e3a1; font-size:11px; border-radius:3px; padding:1px 5px; margin-right:4px;", "{c}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Rename + Delete
+                        div { style: "display:flex; gap:8px; align-items:center; flex-wrap:wrap;",
+                            if *renaming.read() {
+                                input {
+                                    r#type: "text",
+                                    value: "{rename_value.read()}",
+                                    style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace;",
+                                    oninput: move |evt| rename_value.set(evt.value()),
+                                }
+                                button {
+                                    style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
+                                    onclick: move |_| {
+                                        let new = rename_value.read().trim().to_string();
+                                        if new == name_rename || new.is_empty() {
+                                            renaming.set(false);
+                                            return;
+                                        }
+                                        match plugin::rename_plugin(&name_rename, &new) {
+                                            Ok(()) => {
+                                                if let Some(mut pm) = plugin_metas {
+                                                    pm.set(plugin::list_plugin_metas());
+                                                }
+                                                renaming.set(false);
+                                            }
+                                            Err(e) => rename_error.set(format!("{e}")),
+                                        }
+                                    },
+                                    "Rename"
+                                }
+                                button {
+                                    style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
+                                    onclick: move |_| renaming.set(false),
+                                    "Cancel"
+                                }
+                                if !rename_error.read().is_empty() {
+                                    span { style: "color:#f38ba8; font-size:12px;", "{rename_error.read()}" }
+                                }
+                            } else {
+                                button {
+                                    style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
+                                    onclick: move |_| {
+                                        rename_value.set(widget_name.clone());
+                                        renaming.set(true);
+                                    },
+                                    "Rename"
+                                }
+                                button {
+                                    style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
+                                    onclick: move |_| {
+                                        if let Err(e) = plugin::delete_plugin(&name_delete) {
+                                            eprintln!("delete_plugin failed: {e}");
+                                        } else if let Some(mut pm) = plugin_metas {
+                                            pm.set(plugin::list_plugin_metas());
+                                        }
+                                    },
+                                    "Delete"
+                                }
                             }
                         }
                     }

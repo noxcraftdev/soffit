@@ -1,3 +1,41 @@
 description = "System stats: CPU 1-minute load average, memory usage, and uptime"
 components = ["cpu", "mem", "uptime"]
 has_compact = true
+
+[colors.value]
+label = "Value"
+theme_field = "lgray"
+
+[colors.icon]
+label = "Icon"
+theme_field = "dim"
+
+[colors.healthy]
+label = "Healthy"
+theme_field = "green"
+
+[colors.warning]
+label = "Warning"
+theme_field = "orange"
+
+[colors.critical]
+label = "Critical"
+theme_field = "red"
+
+[icons.cpu]
+label = "CPU Icon"
+icons_field = "cpu"
+default_value = "⚡"
+is_char = false
+
+[icons.mem]
+label = "Memory Icon"
+icons_field = "mem"
+default_value = "🧠"
+is_char = false
+
+[icons.uptime]
+label = "Uptime Icon"
+icons_field = "uptime"
+default_value = "⏳"
+is_char = false

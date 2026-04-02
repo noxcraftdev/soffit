@@ -1085,30 +1085,74 @@ fn dispatch_widget(
         "quota" => render_quota(effective_ctx, compact, components),
         "session" => render_session(effective_ctx, compact, components),
         other => {
+            // Build palette-aware theme for this plugin, then apply per-widget overrides.
+            let plugin_theme = {
+                use crate::theme::PaletteRole;
+                let mut etc = ctx.theme_config.clone();
+                if ctx.palette != ThemePalette::default() {
+                    etc.green = Some(ctx.palette.resolve(PaletteRole::Success));
+                    etc.orange = Some(ctx.palette.resolve(PaletteRole::Warning));
+                    etc.red = Some(ctx.palette.resolve(PaletteRole::Danger));
+                    etc.dim = Some(ctx.palette.resolve(PaletteRole::Muted));
+                    etc.lgray = Some(ctx.palette.resolve(PaletteRole::Subtle));
+                    etc.cyan = Some(ctx.palette.resolve(PaletteRole::Primary));
+                    etc.purple = Some(ctx.palette.resolve(PaletteRole::Accent));
+                }
+                let wmeta = crate::plugin::widget_meta(other);
+                if let (Some(wmeta), Some(c)) = (&wmeta, cfg) {
+                    if let Some(ref colors) = c.colors {
+                        for slot in &wmeta.color_slots {
+                            if let Some(cv) = colors.get(&slot.key) {
+                                etc.set_field(
+                                    &slot.theme_field,
+                                    Some(resolve_color(cv, &ctx.palette)),
+                                );
+                            }
+                        }
+                    }
+                }
+                (wmeta, etc.to_theme())
+            };
+            let (wmeta, plugin_theme) = plugin_theme;
+            let plugin_icons: serde_json::Value = {
+                let user_icons = cfg.and_then(|c| c.icons.as_ref());
+                let mut map = serde_json::Map::new();
+                if let Some(ref wmeta) = wmeta {
+                    for slot in &wmeta.icon_slots {
+                        let val = user_icons
+                            .and_then(|m| m.get(&slot.key))
+                            .cloned()
+                            .unwrap_or_else(|| slot.default_value.clone());
+                        map.insert(slot.key.clone(), serde_json::Value::String(val));
+                    }
+                }
+                serde_json::Value::Object(map)
+            };
             let plugin_input = serde_json::json!({
                 "data": effective_ctx.data,
                 "config": {
                     "compact": compact,
                     "components": components,
                     "theme": {
-                        "green": effective_ctx.theme.green,
-                        "orange": effective_ctx.theme.orange,
-                        "red": effective_ctx.theme.red,
-                        "dim": effective_ctx.theme.dim,
-                        "lgray": effective_ctx.theme.lgray,
-                        "cyan": effective_ctx.theme.cyan,
-                        "purple": effective_ctx.theme.purple,
-                        "yellow": effective_ctx.theme.yellow,
-                        "reset": effective_ctx.theme.reset,
-                        "dim_green": effective_ctx.theme.dim_green,
-                        "dim_yellow": effective_ctx.theme.dim_yellow,
-                        "dim_orange": effective_ctx.theme.dim_orange,
-                        "dim_red": effective_ctx.theme.dim_red,
-                        "dim_cyan": effective_ctx.theme.dim_cyan,
-                        "dim_pink": effective_ctx.theme.dim_pink,
-                        "italic": effective_ctx.theme.italic,
-                        "no_italic": effective_ctx.theme.no_italic,
+                        "green": plugin_theme.green,
+                        "orange": plugin_theme.orange,
+                        "red": plugin_theme.red,
+                        "dim": plugin_theme.dim,
+                        "lgray": plugin_theme.lgray,
+                        "cyan": plugin_theme.cyan,
+                        "purple": plugin_theme.purple,
+                        "yellow": plugin_theme.yellow,
+                        "reset": plugin_theme.reset,
+                        "dim_green": plugin_theme.dim_green,
+                        "dim_yellow": plugin_theme.dim_yellow,
+                        "dim_orange": plugin_theme.dim_orange,
+                        "dim_red": plugin_theme.dim_red,
+                        "dim_cyan": plugin_theme.dim_cyan,
+                        "dim_pink": plugin_theme.dim_pink,
+                        "italic": plugin_theme.italic,
+                        "no_italic": plugin_theme.no_italic,
                     },
+                    "icons": plugin_icons,
                     "bar_style": effective_ctx.bar_style.to_string(),
                 }
             });

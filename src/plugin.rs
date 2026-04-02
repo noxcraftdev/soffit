@@ -92,6 +92,103 @@ pub fn list_plugin_metas() -> Vec<PluginMeta> {
     list_plugin_metas_in(&paths::plugins_dir())
 }
 
+#[derive(Debug, Clone)]
+pub struct OwnedColorSlot {
+    pub key: String,
+    pub theme_field: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedIconSlot {
+    pub key: String,
+    pub default_value: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct WidgetMeta {
+    pub color_slots: Vec<OwnedColorSlot>,
+    pub icon_slots: Vec<OwnedIconSlot>,
+}
+
+pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
+    use crate::edit::widget_reference::widget_ref;
+    if let Some(wref) = widget_ref(name) {
+        return Some(WidgetMeta {
+            color_slots: wref
+                .color_slots
+                .iter()
+                .map(|s| OwnedColorSlot {
+                    key: s.key.to_string(),
+                    theme_field: s.theme_field.to_string(),
+                })
+                .collect(),
+            icon_slots: wref
+                .icon_slots
+                .iter()
+                .map(|s| OwnedIconSlot {
+                    key: s.key.to_string(),
+                    default_value: s.default_value.to_string(),
+                })
+                .collect(),
+        });
+    }
+    let dir = crate::paths::plugins_dir();
+    let script_exists = [name, &format!("{name}.sh")[..], &format!("{name}.py")[..]]
+        .iter()
+        .any(|f| dir.join(f).exists());
+    if !script_exists {
+        return None;
+    }
+    let toml_path = dir.join(format!("{name}.toml"));
+    let (color_slots, icon_slots) = std::fs::read_to_string(&toml_path)
+        .ok()
+        .and_then(|raw| raw.parse::<toml::Table>().ok())
+        .map(|table| {
+            let cs = table
+                .get("colors")
+                .and_then(|v| v.as_table())
+                .map(|colors_table| {
+                    colors_table
+                        .iter()
+                        .filter_map(|(key, val)| {
+                            let sub = val.as_table()?;
+                            Some(OwnedColorSlot {
+                                key: key.clone(),
+                                theme_field: sub.get("theme_field")?.as_str()?.to_string(),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let is = table
+                .get("icons")
+                .and_then(|v| v.as_table())
+                .map(|icons_table| {
+                    icons_table
+                        .iter()
+                        .filter_map(|(key, val)| {
+                            let sub = val.as_table()?;
+                            Some(OwnedIconSlot {
+                                key: key.clone(),
+                                default_value: sub
+                                    .get("default_value")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            (cs, is)
+        })
+        .unwrap_or_default();
+    Some(WidgetMeta {
+        color_slots,
+        icon_slots,
+    })
+}
+
 pub fn run_plugin(name: &str, stdin_json: &str) -> Option<String> {
     let plugin_dir = paths::plugins_dir();
     let candidates = [
@@ -143,8 +240,15 @@ pub fn run_plugin(name: &str, stdin_json: &str) -> Option<String> {
         return None;
     }
 
+    // Plugins may embed raw ANSI ESC bytes (0x1B) in JSON output strings via `echo -e`.
+    // Raw ESC bytes are illegal in JSON; escape them so serde_json can parse the structure.
+    let json_src = if stdout.contains('\x1b') {
+        stdout.replace('\x1b', "\\u001b")
+    } else {
+        stdout.clone()
+    };
     // Try to parse as JSON {"output": "..."}, fall back to raw text
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&stdout) {
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_src) {
         // If plugin returned "parts", compose them in the requested component order
         if let Some(parts) = v.get("parts").and_then(|p| p.as_object()) {
             let requested: Vec<String> = serde_json::from_str::<serde_json::Value>(stdin_json)
@@ -368,7 +472,12 @@ pub fn run_plugin_full(name: &str, stdin_json: &str) -> Option<PluginOutput> {
         return None;
     }
 
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&stdout) {
+    let json_src = if stdout.contains('\x1b') {
+        stdout.replace('\x1b', "\\u001b")
+    } else {
+        stdout.clone()
+    };
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_src) {
         let text = v
             .get("output")
             .and_then(|o| o.as_str())

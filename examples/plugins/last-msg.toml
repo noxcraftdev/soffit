@@ -1,3 +1,0 @@
-description = "Timestamp of the last Claude response"
-components = ["time"]
-has_compact = true
