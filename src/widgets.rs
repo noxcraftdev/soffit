@@ -57,7 +57,7 @@ pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContex
     let autocompact_pct: u32 = std::env::var("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(config.autocompact_pct);
+        .unwrap_or(100u32);
 
     let ctx_window = data.context_window.as_ref();
     let raw_pct = ctx_window.and_then(|c| c.used_percentage).unwrap_or(0.0) as u32;
@@ -126,9 +126,9 @@ pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContex
         input_tokens,
         compact_size,
         terminal_width,
-        theme: config.theme.to_theme(),
-        theme_config: config.theme.clone(),
-        icons: config.icons.clone(),
+        theme: crate::theme::ThemeConfig::default().to_theme(),
+        theme_config: crate::theme::ThemeConfig::default(),
+        icons: crate::theme::IconsConfig::default(),
         bar_style: config.bar_style.clone(),
         use_unicode_text: config.use_unicode_text,
         palette: config.palette.clone(),
@@ -1400,9 +1400,9 @@ mod tests {
             }),
             ..Default::default()
         };
-        let mut config = StatuslineConfig::default();
-        config.icons.agent = Some(">> ".to_string());
-        let ctx = build_context(data, &config);
+        let config = StatuslineConfig::default();
+        let mut ctx = build_context(data, &config);
+        ctx.icons.agent = Some(">> ".to_string());
         let ctx = WidgetContext {
             terminal_width: 120,
             ..ctx

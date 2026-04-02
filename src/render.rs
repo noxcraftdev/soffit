@@ -48,7 +48,8 @@ pub fn run() -> Result<()> {
     let config = StatuslineConfig::load()?;
     let data = read_stdin_nonblocking();
     let ctx = widgets::build_context(data, &config);
-    let sep = &config.separator;
+    let sep_owned = format!(" {}|{} ", "\x1b[38;5;242m", "\x1b[0m");
+    let sep = &sep_owned;
     let width = ctx.terminal_width;
 
     let lines = [&config.line1, &config.line2, &config.line3];

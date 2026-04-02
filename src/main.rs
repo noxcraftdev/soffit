@@ -13,8 +13,6 @@ mod types;
 mod update;
 mod widgets;
 
-use config::StatuslineConfig;
-
 #[derive(clap::Parser)]
 #[command(
     name = "soffit",
@@ -254,9 +252,7 @@ fn refresh_cost(sid: &str) -> anyhow::Result<()> {
         }
     }
 
-    let target = StatuslineConfig::load()
-        .map(|c| c.cost_target_weekly)
-        .unwrap_or(300.0);
+    let target = 300.0_f64;
 
     cache::write_cache(
         paths::cost_daily(),
