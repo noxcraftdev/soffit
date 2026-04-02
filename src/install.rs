@@ -5,24 +5,7 @@ use anyhow::{anyhow, bail};
 use crate::{paths, plugin, widgets};
 
 fn curl_fetch(url: &str) -> anyhow::Result<Vec<u8>> {
-    let out = std::process::Command::new("curl")
-        .args([
-            "--fail",
-            "-s",
-            "--max-time",
-            "10",
-            "-H",
-            "User-Agent: soffit",
-            url,
-        ])
-        .output()?;
-    if !out.status.success() {
-        bail!(
-            "curl failed for {url}: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    Ok(out.stdout)
+    crate::http::curl_fetch(url)
 }
 
 /// Returns (owner, repo, name_opt).
@@ -76,7 +59,7 @@ fn try_list_dir(owner: &str, repo: &str, subdir: &str) -> anyhow::Result<Vec<Rep
     Ok(files)
 }
 
-fn install_one_in(
+pub(crate) fn install_one_in(
     dir: &Path,
     name: &str,
     ext: &str,
@@ -130,7 +113,7 @@ fn install_one_in(
     Ok(())
 }
 
-fn raw_url(owner: &str, repo: &str, path: &str) -> String {
+pub(crate) fn raw_url(owner: &str, repo: &str, path: &str) -> String {
     format!("https://raw.githubusercontent.com/{owner}/{repo}/main/{path}")
 }
 
@@ -139,6 +122,9 @@ fn fetch_optional(url: &str) -> Option<Vec<u8>> {
 }
 
 pub fn run(source: &str, force: bool) -> anyhow::Result<()> {
+    if !source.contains('/') {
+        return crate::marketplace::resolve_and_install(source, force);
+    }
     let (owner, repo, name_opt) = parse_source(source)?;
     let plugins_dir = paths::plugins_dir();
 

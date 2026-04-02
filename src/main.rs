@@ -4,7 +4,9 @@ mod colors;
 mod config;
 mod edit;
 mod fmt;
+mod http;
 mod install;
+mod marketplace;
 mod paths;
 mod plugin;
 mod render;
@@ -60,6 +62,11 @@ enum Cli {
         /// Plugin name to remove
         name: String,
     },
+    /// Manage plugin marketplace sources
+    Marketplace {
+        #[command(subcommand)]
+        cmd: marketplace::MarketplaceCmd,
+    },
     /// Update soffit to the latest version
     Update,
     /// Fetch latest soffit version from GitHub (hidden, used internally)
@@ -88,6 +95,7 @@ fn main() -> anyhow::Result<()> {
         Cli::RefreshCost { sid } => refresh_cost(&sid),
         Cli::Install { source, force } => install::run(&source, force),
         Cli::Uninstall { name } => plugin::delete_plugin(&name),
+        Cli::Marketplace { cmd } => marketplace::run(cmd),
         Cli::Update => update::run(),
         Cli::FetchSelfVersion => fetch_self_version(),
         Cli::Serve { port: _ } => anyhow::bail!("serve not yet implemented (Phase 2)"),
