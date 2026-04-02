@@ -44,6 +44,34 @@ install -m 755 "$TMP/soffit" "$INSTALL_DIR/soffit"
 
 echo "Installed soffit to $INSTALL_DIR/soffit"
 
+# Install desktop integration (Linux only)
+if [ "$OS" = "Linux" ]; then
+  ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+  APP_DIR="$HOME/.local/share/applications"
+  mkdir -p "$ICON_DIR" "$APP_DIR"
+
+  if [ -f "$TMP/icon.png" ]; then
+    cp "$TMP/icon.png" "$ICON_DIR/soffit.png"
+  fi
+
+  cat > "$APP_DIR/soffit.desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Soffit
+Comment=Statusline editor for Claude Code
+Exec=soffit edit
+Icon=soffit
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=soffit
+DESKTOP
+
+  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q "$APP_DIR" 2>/dev/null || true
+
+  echo "Installed desktop entry and icon"
+fi
+
 # Check if INSTALL_DIR is in PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -q "^$INSTALL_DIR$"; then
   echo ""
