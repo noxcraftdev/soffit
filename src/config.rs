@@ -21,6 +21,8 @@ pub struct StatuslineConfig {
     pub use_unicode_text: bool,
     pub palette: ThemePalette,
     pub editor_font: Option<String>,
+    pub editor_width: Option<f64>,
+    pub editor_height: Option<f64>,
 }
 
 impl Default for StatuslineConfig {
@@ -42,6 +44,8 @@ impl Default for StatuslineConfig {
             use_unicode_text: true,
             palette: ThemePalette::default(),
             editor_font: None,
+            editor_width: None,
+            editor_height: None,
         }
     }
 }
@@ -99,6 +103,8 @@ impl StatuslineConfig {
                 .get("editor_font")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
+            editor_width: table.get("editor_width").and_then(|v| v.as_float()),
+            editor_height: table.get("editor_height").and_then(|v| v.as_float()),
         })
     }
 
@@ -194,6 +200,18 @@ impl StatuslineConfig {
             );
         } else {
             table.remove("palette");
+        }
+
+        if let Some(w) = self.editor_width {
+            table.insert("editor_width".to_string(), toml::Value::Float(w));
+        } else {
+            table.remove("editor_width");
+        }
+
+        if let Some(h) = self.editor_height {
+            table.insert("editor_height".to_string(), toml::Value::Float(h));
+        } else {
+            table.remove("editor_height");
         }
 
         Ok(())

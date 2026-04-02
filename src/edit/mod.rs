@@ -118,7 +118,28 @@ const CUSTOM_HEAD_JS: &str = r#"(function() {
 })();"#;
 
 #[cfg(feature = "desktop")]
+fn load_icon() -> Option<dioxus::desktop::tao::window::Icon> {
+    let bytes = include_bytes!("../../assets/icon.png");
+    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    dioxus::desktop::tao::window::Icon::from_rgba(img.into_raw(), w, h).ok()
+}
+
+#[cfg(feature = "desktop")]
 pub fn run() -> Result<()> {
+    let cfg = StatuslineConfig::load().unwrap_or_default();
+    let width = cfg.editor_width.unwrap_or(1100.0);
+    let height = cfg.editor_height.unwrap_or(530.0);
+
+    let mut window = WindowBuilder::new()
+        .with_title("Soffit")
+        .with_decorations(true)
+        .with_resizable(true)
+        .with_inner_size(LogicalSize::new(width, height));
+    if let Some(icon) = load_icon() {
+        window = window.with_window_icon(Some(icon));
+    }
+
     dioxus::LaunchBuilder::new()
         .with_cfg(
             Config::default()
@@ -127,13 +148,7 @@ pub fn run() -> Result<()> {
                     CUSTOM_HEAD_CSS, CUSTOM_HEAD_JS
                 ))
                 .with_menu(None)
-                .with_window(
-                    WindowBuilder::new()
-                        .with_title("Soffit")
-                        .with_decorations(true)
-                        .with_resizable(true)
-                        .with_inner_size(LogicalSize::new(1100.0_f64, 530.0_f64)),
-                ),
+                .with_window(window),
         )
         .launch(App);
     Ok(())
@@ -1253,12 +1268,12 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                     {
                         let font_presets: &[(&str, Option<&str>)] = &[
                             ("Default", None),
-                            ("JetBrains Mono", Some("JetBrains Mono")),
+                            ("JetBrainsMono NF", Some("JetBrainsMono Nerd Font")),
                             ("Fira Code", Some("Fira Code")),
-                            ("Cascadia Code", Some("Cascadia Code")),
-                            ("SF Mono", Some("SF Mono")),
-                            ("Menlo", Some("Menlo")),
+                            ("Ubuntu Mono", Some("Ubuntu Mono")),
+                            ("DejaVu Sans Mono", Some("DejaVu Sans Mono")),
                             ("Consolas", Some("Consolas")),
+                            ("Menlo", Some("Menlo")),
                         ];
                         let is_preset = font_presets.iter().any(|(_, v)| v.map(|s| s.to_string()).as_deref() == editor_font.as_deref());
                         let custom_value = if is_preset { String::new() } else { editor_font.clone().unwrap_or_default() };
@@ -1282,7 +1297,7 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                             }
                             input {
                                 r#type: "text",
-                                placeholder: "Custom font...",
+                                placeholder: "Font family name...",
                                 value: "{custom_value}",
                                 style: "background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 8px; font-size:12px; width:160px;",
                                 oninput: move |evt| {
