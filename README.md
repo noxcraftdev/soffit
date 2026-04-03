@@ -4,7 +4,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![CI](https://github.com/noxcraftdev/soffit/actions/workflows/release.yml/badge.svg)](https://github.com/noxcraftdev/soffit/actions)
 
-Customizable statusline manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). Desktop editor with drag-and-drop, live preview, and a plugin system for custom widgets.
+Customizable statusline manager for [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+Desktop editor with drag-and-drop, live preview, and a widget system for custom statusline extensions.
 
 ![soffit in action](assets/soffit-live.png)
 
@@ -15,8 +16,8 @@ Customizable statusline manager for [Claude Code](https://docs.anthropic.com/en/
 - **9 built-in widgets**: context bar, cost, git, version, duration, vim mode, agent, quota, session
 - **Configurable theme**: custom colors, icons, and bar styles via config or the desktop editor
 - **Desktop editor**: drag-and-drop widget ordering, live preview, per-widget component configuration
-- **Plugin system**: create custom widgets as shell scripts or compiled binaries
-- **Auto-detection**: plugins declare components via JSON output for full editor integration
+- **Custom widgets**: create your own widgets as shell scripts or compiled binaries
+- **Auto-detection**: widgets declare components via JSON output for full editor integration
 - **Terminal-width aware**: automatic wrapping and responsive bar widths
 
 ## Install
@@ -49,7 +50,14 @@ sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev libsoup-3.0-dev l
 
 ## Setup
 
-Add to `~/.claude/settings.json`:
+Run the setup command to configure Claude Code automatically:
+
+```bash
+soffit setup
+```
+
+Or add manually to `~/.claude/settings.json`:
+
 ```json
 {
   "statusLine": {
@@ -63,9 +71,10 @@ Add to `~/.claude/settings.json`:
 ## Usage
 
 ```bash
+soffit setup           # Configure Claude Code to use soffit (writes settings.json)
 soffit render          # Render statusline (reads Claude Code JSON from stdin)
 soffit edit            # Open the desktop config editor
-soffit widgets         # List available widgets (built-in + plugins)
+soffit widgets         # List available widgets (built-in + custom)
 soffit widget <name>   # Test a single widget
 ```
 
@@ -86,41 +95,43 @@ compact = false
 components = ["session", "today", "week"]
 ```
 
-### Theme colors
+### Theme
 
-Override any color using ANSI 256-color indices:
+Override semantic color roles using ANSI 256-color indices:
 
 ```toml
-[statusline_theme]
-green = 82        # brighter green
-red = 196         # pure red
-dim = 240         # lighter gray
-purple = 141      # different purple
+[palette]
+success = 114     # green tones (context bar ok, git clean)
+warning = 215     # orange tones (quota approaching, cost high)
+danger  = 203     # red tones (quota critical, over budget)
+muted   = 242     # dimmed text (secondary info)
+subtle  = 250     # light gray (tertiary info)
+primary = 111     # blue tones (main accent)
+accent  = 183     # purple tones (secondary accent)
 ```
 
-Available color roles:
-`green`, `orange`, `red`, `dim`, `lgray`, `cyan`, `purple`, `yellow`,
-`dim_green`, `dim_yellow`, `dim_orange`, `dim_red`, `dim_cyan`, `dim_pink`.
-Unset roles use the built-in defaults.
+All 7 roles have built-in defaults.
+Unset roles use the defaults.
 
 ### Icons
 
-Replace per-widget icons with any character or string:
+Override icons per widget under `[statusline_widgets.NAME.icons]`:
 
 ```toml
-[statusline_icons]
+[statusline_widgets.cost.icons]
 cost = "$ "          # instead of 💸
+
+[statusline_widgets.duration.icons]
 duration = "T "      # instead of ⏱
+
+[statusline_widgets.git.icons]
 git_branch = " "    # nerd font branch icon
+
+[statusline_widgets.agent.icons]
 agent = "> "         # ASCII fallback
 ```
 
-Available icon keys:
-`duration`, `cost`, `git_branch`, `git_staged`, `agent`, `update`.
-
-Bar characters can also be overridden:
-`bar_fill`, `bar_empty`, `bar_half` (context bar),
-`quota_fill`, `quota_empty`, `quota_pace` (quota bar).
+Available icon keys per widget are shown in `soffit edit` under the widget's appearance panel.
 
 ### Bar style
 
@@ -140,7 +151,7 @@ Superscript/subscript rendering in the version widget can be toggled:
 use_unicode_text = false   # plain text instead of ¹·²·³ / ₛₒₙₙₑₜ
 ```
 
-## Custom Plugins
+## Custom Widgets
 
 Drop scripts in `~/.config/soffit/plugins/`:
 
@@ -162,9 +173,10 @@ fi
 
 Make it executable: `chmod +x ~/.config/soffit/plugins/weather.sh`
 
-### Plugin input format
+### Widget input format
 
-Plugins receive JSON on stdin:
+Widgets receive JSON on stdin:
+
 ```json
 {
   "data": {
@@ -179,11 +191,21 @@ Plugins receive JSON on stdin:
   "config": {
     "compact": false,
     "components": ["temp", "condition"]
+  },
+  "palette": {
+    "primary":  "\u001b[38;5;111m",
+    "accent":   "\u001b[38;5;183m",
+    "success":  "\u001b[38;5;114m",
+    "warning":  "\u001b[38;5;215m",
+    "danger":   "\u001b[38;5;203m",
+    "muted":    "\u001b[38;5;242m",
+    "subtle":   "\u001b[38;5;250m",
+    "reset":    "\u001b[0m"
   }
 }
 ```
 
-### Plugin output format
+### Widget output format
 
 Return JSON with `parts` so the framework reorders components per user config:
 ```json
@@ -200,9 +222,10 @@ Or return plain text:
 22°C sunny
 ```
 
-### Plugin metadata (optional)
+### Widget metadata (optional)
 
 Create a `.toml` sidecar for richer editor integration:
+
 ```toml
 # ~/.config/soffit/plugins/weather.toml
 description = "Current weather conditions"
@@ -210,9 +233,9 @@ components = ["temp", "condition"]
 has_compact = true
 ```
 
-## Plugin Marketplace
+## Marketplace
 
-The marketplace subcommand manages a list of named plugin sources (GitHub repos that publish a `registry.json`).
+The marketplace subcommand manages a list of named widget sources (GitHub repos that publish a `registry.json`).
 By default soffit ships with the official `noxcraftdev/soffit-marketplace` source.
 
 ```bash
@@ -222,7 +245,7 @@ soffit marketplace add community alice/soffit-extras
 # List registered sources (no network)
 soffit marketplace list
 
-# List sources with plugin counts (fetches or uses cached registry)
+# List sources with widget counts (fetches or uses cached registry)
 soffit marketplace list --verbose
 
 # Remove a source
@@ -235,12 +258,12 @@ soffit marketplace update --source community
 
 ### Installing from the marketplace
 
-Once sources are configured, install by plugin name — soffit searches all sources:
+Once sources are configured, install by widget name — soffit searches all sources:
 
 ```bash
 soffit install <name>          # resolves from marketplace sources
-soffit install owner/repo      # installs all plugins from a repo directly
-soffit install owner/repo/name # installs a single plugin from a specific repo
+soffit install owner/repo      # installs all widgets from a repo directly
+soffit install owner/repo/name # installs a single widget from a specific repo
 ```
 
 ### Publishing a marketplace source
@@ -262,27 +285,27 @@ Create a `registry.json` at the root of any public GitHub repo:
 
 Then share the source with: `soffit marketplace add your-source alice/soffit-extras`.
 
-## Community Plugins
+## Community Widgets
 
-Install plugins shared on GitHub:
+Install widgets shared on GitHub:
 
 ```bash
-# Install all plugins from the official collection
+# Install all widgets from the official collection
 soffit install noxcraftdev/soffit-plugins
 
-# Install a specific plugin
+# Install a specific widget
 soffit install noxcraftdev/soffit-plugins/last-msg
 
-# Remove an installed plugin
+# Remove an installed widget
 soffit uninstall last-msg
 
-# Overwrite an existing plugin
+# Overwrite an existing widget
 soffit install noxcraftdev/soffit-plugins --force
 ```
 
-Installed plugins land in `~/.config/soffit/plugins/` and are immediately available.
+Installed widgets land in `~/.config/soffit/plugins/` and are immediately available.
 
-### Creating a plugin repository
+### Creating a widget repository
 
 Lay out your repo as a flat directory of `{name}.sh` + `{name}.toml` pairs:
 
@@ -294,7 +317,8 @@ my-soffit-plugins/
   stocks.toml
 ```
 
-soffit looks for this layout at the repo root first, then inside a `plugins/` subdirectory. Multiple plugins per repo is the norm — a single repo can host an entire collection.
+soffit looks for this layout at the repo root first, then inside a `plugins/` subdirectory.
+Multiple widgets per repo is the norm — a single repo can host an entire collection.
 
 The `.toml` sidecar is optional but recommended: it supplies the description and component list shown in `soffit edit`.
 
@@ -304,7 +328,7 @@ The `.toml` sidecar is optional but recommended: it supplies the description and
 
 - **Lines tab**: drag-and-drop widgets across 3 statusline rows
 - **Widgets tab**: configure built-in widgets (reorder components, toggle compact mode)
-- **Plugin management**: create, edit, preview, rename, delete plugins
+- **Widget management**: create, edit, preview, rename, delete custom widgets
 - **Live preview**: see your statusline update in real-time
 
 ![Editor - Lines tab](assets/editor-lines.png)

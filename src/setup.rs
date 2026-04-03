@@ -20,7 +20,7 @@ fn claude_settings_path() -> Result<PathBuf> {
     Ok(home.join(".claude").join("settings.json"))
 }
 
-/// Merges `env.statusLine.command = "soffit render"` into the settings file.
+/// Merges `statusLine` into the settings file at the top level.
 /// Returns `true` if the file was already correctly configured (no write needed).
 fn update_settings(path: &PathBuf) -> Result<bool> {
     let raw = if path.exists() {
@@ -33,8 +33,7 @@ fn update_settings(path: &PathBuf) -> Result<bool> {
         serde_json::from_str(&raw).context("parsing settings.json")?;
 
     let current_command = root
-        .get("env")
-        .and_then(|e| e.get("statusLine"))
+        .get("statusLine")
         .and_then(|s| s.get("command"))
         .and_then(|c| c.as_str());
 
@@ -42,11 +41,8 @@ fn update_settings(path: &PathBuf) -> Result<bool> {
         return Ok(true);
     }
 
-    if !root.get("env").map(|v| v.is_object()).unwrap_or(false) {
-        root["env"] = serde_json::json!({});
-    }
-
-    root["env"]["statusLine"] = serde_json::json!({ "command": "soffit render" });
+    root["statusLine"] =
+        serde_json::json!({ "type": "command", "command": "soffit render", "padding": 0 });
 
     let serialized = serde_json::to_string_pretty(&root).context("serializing settings.json")?;
 
