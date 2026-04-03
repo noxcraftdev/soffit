@@ -60,3 +60,21 @@ pub fn self_version_cache() -> &'static str {
 pub fn self_version_lock() -> &'static str {
     "/tmp/soffit-self-version.lock"
 }
+
+pub fn marketplace_config() -> std::path::PathBuf {
+    config_dir().join("marketplace.toml")
+}
+
+pub fn marketplace_registry_cache(owner: &str, repo: &str) -> String {
+    // Sanitize each segment (guards against hand-edited configs with path traversal chars)
+    // and use %2F as separator to avoid collision between e.g. "foo-bar/baz" vs "foo/bar-baz"
+    let safe_owner: String = owner
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_'))
+        .collect();
+    let safe_repo: String = repo
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        .collect();
+    format!("/tmp/soffit-registry-{safe_owner}%2F{safe_repo}")
+}

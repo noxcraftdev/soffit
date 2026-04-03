@@ -210,6 +210,58 @@ components = ["temp", "condition"]
 has_compact = true
 ```
 
+## Plugin Marketplace
+
+The marketplace subcommand manages a list of named plugin sources (GitHub repos that publish a `registry.json`).
+By default soffit ships with the official `noxcraftdev/soffit-marketplace` source.
+
+```bash
+# Add a community source
+soffit marketplace add community alice/soffit-extras
+
+# List registered sources (no network)
+soffit marketplace list
+
+# List sources with plugin counts (fetches or uses cached registry)
+soffit marketplace list --verbose
+
+# Remove a source
+soffit marketplace remove community
+
+# Refresh the cached registry for all sources (or one with --source)
+soffit marketplace update
+soffit marketplace update --source community
+```
+
+### Installing from the marketplace
+
+Once sources are configured, install by plugin name — soffit searches all sources:
+
+```bash
+soffit install <name>          # resolves from marketplace sources
+soffit install owner/repo      # installs all plugins from a repo directly
+soffit install owner/repo/name # installs a single plugin from a specific repo
+```
+
+### Publishing a marketplace source
+
+Create a `registry.json` at the root of any public GitHub repo:
+
+```json
+{
+  "plugins": [
+    {
+      "name": "weather",
+      "description": "Current weather conditions",
+      "repo": "alice/soffit-extras",
+      "file": "weather.sh"
+    }
+  ]
+}
+```
+
+Then share the source with: `soffit marketplace add your-source alice/soffit-extras`.
+
 ## Community Plugins
 
 Install plugins shared on GitHub:
