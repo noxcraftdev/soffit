@@ -1,8 +1,8 @@
 [package]
 name = "soffit"
-version = "0.0.5"
+version = "0.0.6"
 edition = "2021"
-description = "Customizable statusline manager for Claude Code with desktop editor and plugin system"
+description = "Customizable statusline manager for Claude Code with desktop editor and custom widget support"
 license = "MIT"
 repository = "https://github.com/noxcraftdev/soffit"
 keywords = ["statusline", "claude-code", "terminal", "widgets", "cli"]
