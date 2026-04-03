@@ -17,7 +17,7 @@ use crate::cache;
 use crate::config::StatuslineConfig;
 use crate::fmt::*;
 use crate::paths;
-use crate::theme::{BarStyle, IconsConfig, Theme, ThemeConfig, ThemePalette};
+use crate::theme::{BarStyle, IconsConfig, Theme, ThemePalette};
 use crate::types::{ColorValue, InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
 
 pub const AVAILABLE: &[&str] = &[
@@ -39,7 +39,6 @@ pub struct WidgetContext {
     pub compact_size: Option<u64>,
     pub terminal_width: u16,
     pub theme: Theme,
-    pub theme_config: ThemeConfig,
     pub icons: IconsConfig,
     pub bar_style: BarStyle,
     pub use_unicode_text: bool,
@@ -126,8 +125,7 @@ pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContex
         input_tokens,
         compact_size,
         terminal_width,
-        theme: crate::theme::ThemeConfig::default().to_theme(),
-        theme_config: crate::theme::ThemeConfig::default(),
+        theme: config.palette.to_theme_config().to_theme(),
         icons: crate::theme::IconsConfig::default(),
         bar_style: config.bar_style.clone(),
         use_unicode_text: config.use_unicode_text,
@@ -996,16 +994,14 @@ fn dispatch_widget(
     // Merge per-widget semantic color/icon slots onto a cloned context. Zero-cost on the common path.
     let merged;
     let effective_ctx: &WidgetContext = if needs_merge {
-        let mut effective_theme_config = ctx.theme_config.clone();
+        let mut effective_theme_config = ctx.palette.to_theme_config();
 
         // Apply palette default roles for all color slots
-        if palette_non_default {
-            if let Some(wref) = wref {
-                for slot in wref.color_slots {
-                    if let Some(role) = slot.default_role {
-                        let idx = ctx.palette.resolve(role);
-                        effective_theme_config.set_field(slot.theme_field, Some(idx));
-                    }
+        if let Some(wref) = wref {
+            for slot in wref.color_slots {
+                if let Some(role) = slot.default_role {
+                    let idx = ctx.palette.resolve(role);
+                    effective_theme_config.set_field(slot.theme_field, Some(idx));
                 }
             }
         }
@@ -1052,7 +1048,6 @@ fn dispatch_widget(
             compact_size: ctx.compact_size,
             terminal_width: ctx.terminal_width,
             theme: effective_theme_config.to_theme(),
-            theme_config: effective_theme_config,
             icons: effective_icons,
             bar_style: effective_bar_style,
             use_unicode_text: ctx.use_unicode_text,
@@ -1087,17 +1082,7 @@ fn dispatch_widget(
         other => {
             // Build palette-aware theme for this plugin, then apply per-widget overrides.
             let plugin_theme = {
-                use crate::theme::PaletteRole;
-                let mut etc = ctx.theme_config.clone();
-                if ctx.palette != ThemePalette::default() {
-                    etc.green = Some(ctx.palette.resolve(PaletteRole::Success));
-                    etc.orange = Some(ctx.palette.resolve(PaletteRole::Warning));
-                    etc.red = Some(ctx.palette.resolve(PaletteRole::Danger));
-                    etc.dim = Some(ctx.palette.resolve(PaletteRole::Muted));
-                    etc.lgray = Some(ctx.palette.resolve(PaletteRole::Subtle));
-                    etc.cyan = Some(ctx.palette.resolve(PaletteRole::Primary));
-                    etc.purple = Some(ctx.palette.resolve(PaletteRole::Accent));
-                }
+                let mut etc = ctx.palette.to_theme_config();
                 let wmeta = crate::plugin::widget_meta(other);
                 if let (Some(wmeta), Some(c)) = (&wmeta, cfg) {
                     if let Some(ref colors) = c.colors {

@@ -313,20 +313,17 @@ fn widget_preview(
 ) -> Element {
     use crate::theme::ansi_256_to_hex;
     let merged_tc;
-    let palette_non_default = config.palette != crate::theme::ThemePalette::default();
     let tc = if let Some(wref) = widget_ref(name) {
         let colors = config.widgets.get(name).and_then(|wc| wc.colors.as_ref());
-        let needs_merge = colors.is_some() || (palette_non_default && !wref.color_slots.is_empty());
+        let needs_merge = colors.is_some() || !wref.color_slots.is_empty();
         if needs_merge {
             merged_tc = {
                 use crate::types::ColorValue;
-                let mut tc = crate::theme::ThemeConfig::default();
+                let mut tc = config.palette.to_theme_config();
                 // Apply palette default roles first
-                if palette_non_default {
-                    for slot in wref.color_slots {
-                        if let Some(role) = slot.default_role {
-                            tc.set_field(slot.theme_field, Some(config.palette.resolve(role)));
-                        }
+                for slot in wref.color_slots {
+                    if let Some(role) = slot.default_role {
+                        tc.set_field(slot.theme_field, Some(config.palette.resolve(role)));
                     }
                 }
                 // Explicit per-widget overrides take precedence
@@ -602,30 +599,7 @@ fn widget_preview(
         _ => {
             // Build palette-aware effective theme, then apply per-widget color overrides.
             let effective_theme = {
-                let mut etc = tc.clone();
-                if palette_non_default {
-                    if etc.green.is_none() {
-                        etc.green = Some(config.palette.resolve(PaletteRole::Success));
-                    }
-                    if etc.orange.is_none() {
-                        etc.orange = Some(config.palette.resolve(PaletteRole::Warning));
-                    }
-                    if etc.red.is_none() {
-                        etc.red = Some(config.palette.resolve(PaletteRole::Danger));
-                    }
-                    if etc.dim.is_none() {
-                        etc.dim = Some(config.palette.resolve(PaletteRole::Muted));
-                    }
-                    if etc.lgray.is_none() {
-                        etc.lgray = Some(config.palette.resolve(PaletteRole::Subtle));
-                    }
-                    if etc.cyan.is_none() {
-                        etc.cyan = Some(config.palette.resolve(PaletteRole::Primary));
-                    }
-                    if etc.purple.is_none() {
-                        etc.purple = Some(config.palette.resolve(PaletteRole::Accent));
-                    }
-                }
+                let mut etc = config.palette.to_theme_config();
                 if let Some(wmeta) = crate::plugin::widget_meta(name) {
                     if let Some(wc) = config.widgets.get(name) {
                         if let Some(ref colors) = wc.colors {
@@ -698,8 +672,7 @@ fn widget_preview(
 }
 
 fn preview_line(widgets: &[String], config: &StatuslineConfig) -> Element {
-    let dim_s =
-        crate::theme::ansi_256_to_hex(crate::theme::ThemeConfig::default().dim.unwrap_or(242));
+    let dim_s = crate::theme::ansi_256_to_hex(242u8);
     let dim = dim_s.as_str();
     if widgets.is_empty() {
         return rsx! { span { style: "color:{dim}; font-style:italic;", "—" } };

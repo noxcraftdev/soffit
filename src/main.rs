@@ -1,6 +1,5 @@
 //! Customizable statusline manager for Claude Code with plugin system and desktop editor.
 mod cache;
-mod colors;
 mod config;
 mod edit;
 mod fmt;

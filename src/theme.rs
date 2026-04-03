@@ -68,27 +68,6 @@ pub struct ThemeConfig {
 
 impl ThemeConfig {
     #[allow(dead_code)]
-    pub fn get_field(&self, name: &str) -> Option<u8> {
-        match name {
-            "green" => self.green,
-            "orange" => self.orange,
-            "red" => self.red,
-            "dim" => self.dim,
-            "lgray" => self.lgray,
-            "cyan" => self.cyan,
-            "purple" => self.purple,
-            "yellow" => self.yellow,
-            "dim_green" => self.dim_green,
-            "dim_yellow" => self.dim_yellow,
-            "dim_orange" => self.dim_orange,
-            "dim_red" => self.dim_red,
-            "dim_cyan" => self.dim_cyan,
-            "dim_pink" => self.dim_pink,
-            _ => None,
-        }
-    }
-
-    #[allow(dead_code)]
     pub fn set_field(&mut self, name: &str, value: Option<u8>) {
         match name {
             "green" => self.green = value,
@@ -152,17 +131,6 @@ pub enum PaletteRole {
 }
 
 #[allow(dead_code)]
-pub const PALETTE_ROLES: &[PaletteRole] = &[
-    PaletteRole::Primary,
-    PaletteRole::Accent,
-    PaletteRole::Success,
-    PaletteRole::Warning,
-    PaletteRole::Danger,
-    PaletteRole::Muted,
-    PaletteRole::Subtle,
-];
-
-#[allow(dead_code)]
 impl PaletteRole {
     pub fn name(&self) -> &'static str {
         match self {
@@ -202,6 +170,16 @@ impl PaletteRole {
     }
 }
 
+pub const PALETTE_ROLES: &[PaletteRole] = &[
+    PaletteRole::Primary,
+    PaletteRole::Accent,
+    PaletteRole::Success,
+    PaletteRole::Warning,
+    PaletteRole::Danger,
+    PaletteRole::Muted,
+    PaletteRole::Subtle,
+];
+
 /// A named set of 7 semantic color indices (ANSI 256).
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -240,6 +218,25 @@ impl ThemePalette {
             PaletteRole::Danger => self.danger,
             PaletteRole::Muted => self.muted,
             PaletteRole::Subtle => self.subtle,
+        }
+    }
+
+    pub fn to_theme_config(&self) -> ThemeConfig {
+        ThemeConfig {
+            green: Some(self.success),
+            orange: Some(self.warning),
+            red: Some(self.danger),
+            dim: Some(self.muted),
+            lgray: Some(self.subtle),
+            cyan: Some(self.primary),
+            purple: Some(self.accent),
+            yellow: None,
+            dim_green: None,
+            dim_yellow: None,
+            dim_orange: None,
+            dim_red: None,
+            dim_cyan: None,
+            dim_pink: None,
         }
     }
 }
