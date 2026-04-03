@@ -26,37 +26,68 @@ struct RepoFile {
 
 fn list_repo_plugins(owner: &str, repo: &str) -> anyhow::Result<Vec<RepoFile>> {
     // Try root first, then /plugins subdirectory.
-    let files = try_list_dir(owner, repo, "").or_else(|_| try_list_dir(owner, repo, "plugins"))?;
-    Ok(files
-        .into_iter()
-        .filter(|f| f.name.ends_with(".sh") || f.name.ends_with(".py"))
-        .collect())
-}
+    let entries =
+        try_list_dir_raw(owner, repo, "").or_else(|_| try_list_dir_raw(owner, repo, "plugins"))?;
 
-fn try_list_dir(owner: &str, repo: &str, subdir: &str) -> anyhow::Result<Vec<RepoFile>> {
-    let path = if subdir.is_empty() {
-        format!("https://api.github.com/repos/{owner}/{repo}/contents")
-    } else {
-        format!("https://api.github.com/repos/{owner}/{repo}/contents/{subdir}")
-    };
-    let bytes = curl_fetch(&path)?;
-    let arr: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let items = arr
-        .as_array()
-        .ok_or_else(|| anyhow!("expected array from GitHub API"))?;
-    let files = items
+    let mut files: Vec<RepoFile> = entries
         .iter()
-        .filter_map(|item| {
+        .filter_map(|item: &serde_json::Value| {
             let name = item.get("name")?.as_str()?.to_string();
             let path = item.get("path")?.as_str()?.to_string();
             let kind = item.get("type")?.as_str().unwrap_or("");
             if kind != "file" {
                 return None;
             }
+            if !name.ends_with(".sh") && !name.ends_with(".py") {
+                return None;
+            }
             Some(RepoFile { name, path })
         })
         .collect();
+
+    // If no script files were found at root, check for per-plugin subdirectories.
+    if files.is_empty() {
+        for item in &entries {
+            let kind = item
+                .get("type")
+                .and_then(|v: &serde_json::Value| v.as_str())
+                .unwrap_or("");
+            if kind != "dir" {
+                continue;
+            }
+            let dirname = match item
+                .get("name")
+                .and_then(|v: &serde_json::Value| v.as_str())
+            {
+                Some(n) => n,
+                None => continue,
+            };
+            let ext = "sh";
+            files.push(RepoFile {
+                name: format!("{dirname}.{ext}"),
+                path: format!("{dirname}/{dirname}.{ext}"),
+            });
+        }
+    }
+
     Ok(files)
+}
+
+fn try_list_dir_raw(
+    owner: &str,
+    repo: &str,
+    subdir: &str,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let url = if subdir.is_empty() {
+        format!("https://api.github.com/repos/{owner}/{repo}/contents")
+    } else {
+        format!("https://api.github.com/repos/{owner}/{repo}/contents/{subdir}")
+    };
+    let bytes = curl_fetch(&url)?;
+    let arr: serde_json::Value = serde_json::from_slice(&bytes)?;
+    arr.as_array()
+        .ok_or_else(|| anyhow!("expected array from GitHub API"))
+        .cloned()
 }
 
 pub(crate) fn install_one_in(
@@ -141,17 +172,29 @@ fn install_single(
     dir: &Path,
     force: bool,
 ) -> anyhow::Result<()> {
-    // Try .sh then .py from raw.githubusercontent.com.
-    let (script, ext) =
-        if let Some(bytes) = fetch_optional(&raw_url(owner, repo, &format!("{name}.sh"))) {
-            (bytes, "sh")
-        } else if let Some(bytes) = fetch_optional(&raw_url(owner, repo, &format!("{name}.py"))) {
-            (bytes, "py")
-        } else {
-            bail!("plugin '{name}' not found in {owner}/{repo} (tried .sh and .py)");
-        };
+    // Try root then per-plugin subdir, .sh before .py.
+    let (script, ext, prefix) = if let Some(bytes) =
+        fetch_optional(&raw_url(owner, repo, &format!("{name}.sh")))
+    {
+        (bytes, "sh", "")
+    } else if let Some(bytes) = fetch_optional(&raw_url(owner, repo, &format!("{name}/{name}.sh")))
+    {
+        (bytes, "sh", name)
+    } else if let Some(bytes) = fetch_optional(&raw_url(owner, repo, &format!("{name}.py"))) {
+        (bytes, "py", "")
+    } else if let Some(bytes) = fetch_optional(&raw_url(owner, repo, &format!("{name}/{name}.py")))
+    {
+        (bytes, "py", name)
+    } else {
+        bail!("plugin '{name}' not found in {owner}/{repo} (tried root and {name}/ subdir)");
+    };
 
-    let toml_opt = fetch_optional(&raw_url(owner, repo, &format!("{name}.toml")));
+    let toml_path = if prefix.is_empty() {
+        format!("{name}.toml")
+    } else {
+        format!("{prefix}/{name}.toml")
+    };
+    let toml_opt = fetch_optional(&raw_url(owner, repo, &toml_path));
 
     install_one_in(dir, name, ext, &script, toml_opt, force)?;
     println!("installed {name}");
