@@ -10,6 +10,7 @@ mod marketplace;
 mod paths;
 mod plugin;
 mod render;
+mod setup;
 mod theme;
 mod types;
 mod update;
@@ -69,6 +70,8 @@ enum Cli {
     },
     /// Update soffit to the latest version
     Update,
+    /// Configure Claude Code to use soffit as the statusline
+    Setup,
     /// Fetch latest soffit version from GitHub (hidden, used internally)
     #[command(hide = true)]
     FetchSelfVersion,
@@ -99,6 +102,7 @@ fn main() -> anyhow::Result<()> {
         Cli::Update => update::run(),
         Cli::FetchSelfVersion => fetch_self_version(),
         Cli::Serve { port: _ } => anyhow::bail!("serve not yet implemented (Phase 2)"),
+        Cli::Setup => setup::run(),
     }
 }
 
