@@ -97,8 +97,7 @@ pub fn subscript(s: &str) -> String {
 
 const SEG_DIGITS: &[char] = &['🯰', '🯱', '🯲', '🯳', '🯴', '🯵', '🯶', '🯷', '🯸', '🯹'];
 
-pub fn seg_pct(n: u32, col: &str, palette: &ThemePalette) -> String {
-    let _ = palette;
+pub fn seg_pct(n: u32, col: &str) -> String {
     let v = n.min(999);
     let digits: String = v
         .to_string()
@@ -175,11 +174,11 @@ pub fn context_bar(
     bar.push_str(RESET);
 
     let label_col = if fill_int >= threshold1 {
-        ansi(palette.danger)
+        danger
     } else if fill_int >= threshold0 {
-        ansi(palette.warning)
+        warning
     } else {
-        ansi(palette.success)
+        success
     };
 
     (bar, label_col)
@@ -261,9 +260,9 @@ pub fn usage_bar(
     bar.push_str(RESET);
 
     let label_col = if pct >= 80 {
-        ansi(palette.danger)
+        danger
     } else if pct >= 50 {
-        ansi(palette.warning)
+        warning
     } else {
         primary
     };
@@ -392,7 +391,7 @@ pub fn pace_balance_secs(used: f64, remaining_secs: f64, window_secs: f64) -> Op
 }
 
 /// Format pace as italic colored segmented hours.
-pub fn fmt_pace(secs: i64, window_secs: u64, palette: &ThemePalette) -> String {
+pub fn fmt_pace(secs: i64, window_secs: u64) -> String {
     let col: &str = if secs >= 0 {
         DIM_PRIMARY
     } else {
@@ -403,7 +402,6 @@ pub fn fmt_pace(secs: i64, window_secs: u64, palette: &ThemePalette) -> String {
             DIM_WARNING
         }
     };
-    let _ = palette;
     let sign = if secs >= 0 { "+" } else { "-" };
     let hours = secs.unsigned_abs() / 3600;
     let seg_hours = hours
@@ -533,7 +531,7 @@ mod tests {
     fn test_seg_pct_zero() {
         let p = ThemePalette::default();
         let col = ansi(p.success);
-        let s = seg_pct(0, &col, &p);
+        let s = seg_pct(0, &col);
         assert!(s.contains('🯰'));
         assert!(s.contains('٪'));
         assert!(s.contains(&col));
@@ -544,7 +542,7 @@ mod tests {
     fn test_seg_pct_clamp() {
         let p = ThemePalette::default();
         let col = ansi(p.danger);
-        let s = seg_pct(1000, &col, &p);
+        let s = seg_pct(1000, &col);
         // clamped to 999
         assert!(s.contains('🯹'));
     }

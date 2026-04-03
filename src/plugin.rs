@@ -149,7 +149,7 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
         .and_then(|raw| raw.parse::<toml::Table>().ok())
         .map(|table| {
             let ts = table
-                .get("colors")
+                .get("theme")
                 .and_then(|v| v.as_table())
                 .map(|colors_table| {
                     colors_table

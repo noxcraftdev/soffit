@@ -284,7 +284,7 @@ pub fn render_context_bar(
     for comp in active_components(components, COMPONENTS_CONTEXT_BAR) {
         match comp {
             "bar" => parts.push(bar.clone()),
-            "pct" => parts.push(seg_pct(ctx.pct, &col, p)),
+            "pct" => parts.push(seg_pct(ctx.pct, &col)),
             "tokens" if !compact => {
                 parts.push(format!(
                     "{}{}/{denom}{RESET}",
@@ -878,11 +878,11 @@ fn render_quota_window(
     let (bar, _) = usage_bar(
         remaining, bar_width, &col, pace_pct, palette, bar_style, icons,
     );
-    let pct_str = seg_pct(remaining, &col, palette);
+    let pct_str = seg_pct(remaining, &col);
 
     let pace_part = if show_pace {
         pace_balance_secs(used, remaining_secs, window_secs)
-            .map(|bal| format!(" {}", fmt_pace(bal, window_secs as u64, palette)))
+            .map(|bal| format!(" {}", fmt_pace(bal, window_secs as u64)))
             .unwrap_or_default()
     } else {
         String::new()

@@ -353,7 +353,7 @@ fn widget_preview(
     let orange_s = ansi_256_to_hex(pal.warning);
     let red_s = ansi_256_to_hex(pal.danger);
     let purple_s = ansi_256_to_hex(pal.accent);
-    let yellow_s = ansi_256_to_hex(pal.warning);
+    let yellow_s = ansi_256_to_hex(pal.subtle);
     let dim = dim_s.as_str();
     let blue = blue_s.as_str();
     let green = green_s.as_str();
