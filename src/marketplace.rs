@@ -199,21 +199,21 @@ pub fn resolve_and_install(name: &str, force: bool) -> anyhow::Result<()> {
         }
     }
     anyhow::bail!(
-        "plugin '{name}' not found in any registered source. Use 'soffit marketplace list' to see sources or 'soffit install owner/repo/name' to install directly."
+        "widget '{name}' not found in any registered source. Use 'soffit marketplace list' to see sources or 'soffit install owner/repo/name' to install directly."
     )
 }
 
 #[derive(clap::Subcommand)]
 pub enum MarketplaceCmd {
-    /// Add a named plugin source (owner/repo)
+    /// Add a named widget source (owner/repo)
     Add { name: String, repo: String },
-    /// List all registered plugin sources
+    /// List all registered widget sources
     List {
-        /// Show plugin counts (fetches or uses cached registry)
+        /// Show widget counts (fetches or uses cached registry)
         #[arg(short = 'v', long)]
         verbose: bool,
     },
-    /// Remove a named plugin source
+    /// Remove a named widget source
     Remove {
         name: String,
         #[arg(long)]
@@ -262,7 +262,7 @@ pub fn run(cmd: MarketplaceCmd) -> anyhow::Result<()> {
                     Err(_) => (0usize, "unavailable"),
                 };
                 println!(
-                    "{:<12} {:<40} {} plugins  [{}]",
+                    "{:<12} {:<40} {} widgets  [{}]",
                     source.name, source.repo, count, status
                 );
             }
@@ -296,7 +296,7 @@ pub fn run(cmd: MarketplaceCmd) -> anyhow::Result<()> {
 
                 match fetch_registry(&s.repo) {
                     Ok(entries) => {
-                        println!("updated {} ({} plugins)", s.name, entries.len());
+                        println!("updated {} ({} widgets)", s.name, entries.len());
                     }
                     Err(e) => {
                         eprintln!("warning: could not refresh '{}': {e}", s.name);

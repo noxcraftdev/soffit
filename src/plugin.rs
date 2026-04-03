@@ -60,7 +60,7 @@ fn list_plugin_metas_in(dir: &Path) -> Vec<PluginMeta> {
                         description: table
                             .get("description")
                             .and_then(|v| v.as_str())
-                            .unwrap_or("Custom plugin")
+                            .unwrap_or("Custom widget")
                             .to_string(),
                         components: table
                             .get("components")
@@ -80,7 +80,7 @@ fn list_plugin_metas_in(dir: &Path) -> Vec<PluginMeta> {
             }
             PluginMeta {
                 name,
-                description: "Custom plugin".to_string(),
+                description: "Custom widget".to_string(),
                 components: vec![],
                 has_compact: false,
             }
@@ -325,7 +325,7 @@ pub fn write_plugin_source(name: &str, content: &str) -> anyhow::Result<()> {
 
 fn write_plugin_source_in(dir: &Path, name: &str, content: &str) -> anyhow::Result<()> {
     let path =
-        source_path_in(dir, name).ok_or_else(|| anyhow::anyhow!("plugin not found: {name}"))?;
+        source_path_in(dir, name).ok_or_else(|| anyhow::anyhow!("widget not found: {name}"))?;
     std::fs::write(&path, content)?;
     // Preserve executable permission on unix
     #[cfg(unix)]
@@ -350,7 +350,7 @@ fn create_plugin_in(dir: &Path, name: &str, ext: &str, template: &str) -> anyhow
     };
     let path = dir.join(&filename);
     if path.exists() {
-        anyhow::bail!("plugin already exists: {filename}");
+        anyhow::bail!("widget already exists: {filename}");
     }
     std::fs::write(&path, template)?;
     #[cfg(unix)]
@@ -363,7 +363,7 @@ fn create_plugin_in(dir: &Path, name: &str, ext: &str, template: &str) -> anyhow
     if !toml_path.exists() {
         std::fs::write(
             &toml_path,
-            format!("description = \"Custom plugin: {name}\"\n"),
+            format!("description = \"Custom widget: {name}\"\n"),
         )?;
     }
     Ok(())
@@ -518,7 +518,7 @@ pub fn run_plugin_full(name: &str, stdin_json: &str) -> Option<PluginOutput> {
 pub fn rename_plugin(old_name: &str, new_name: &str) -> anyhow::Result<()> {
     let dir = paths::plugins_dir();
     if new_name.is_empty() || new_name.contains(' ') || new_name.contains('/') {
-        anyhow::bail!("invalid plugin name: {new_name}");
+        anyhow::bail!("invalid widget name: {new_name}");
     }
     // Rename script file
     if let Some(old_path) = source_path_in(&dir, old_name) {
@@ -530,11 +530,11 @@ pub fn rename_plugin(old_name: &str, new_name: &str) -> anyhow::Result<()> {
         };
         let new_path = dir.join(&new_filename);
         if new_path.exists() {
-            anyhow::bail!("plugin already exists: {new_filename}");
+            anyhow::bail!("widget already exists: {new_filename}");
         }
         std::fs::rename(&old_path, &new_path)?;
     } else {
-        anyhow::bail!("plugin not found: {old_name}");
+        anyhow::bail!("widget not found: {old_name}");
     }
     // Rename sidecar
     let old_toml = dir.join(format!("{old_name}.toml"));
@@ -558,7 +558,7 @@ pub fn import_plugin(source_path: &Path) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow::anyhow!("invalid source path"))?;
     let dest = dir.join(file_name);
     if dest.exists() {
-        anyhow::bail!("plugin already exists: {file_name}");
+        anyhow::bail!("widget already exists: {file_name}");
     }
     std::fs::copy(source_path, &dest)?;
     #[cfg(unix)]
@@ -703,7 +703,7 @@ mod tests {
         assert_eq!(metas.len(), 1);
         let m = &metas[0];
         assert_eq!(m.name, "simple");
-        assert_eq!(m.description, "Custom plugin");
+        assert_eq!(m.description, "Custom widget");
         assert!(m.components.is_empty());
         assert!(!m.has_compact);
     }
@@ -739,7 +739,7 @@ has_compact = true
         let metas = list_plugin_metas_in(dir.path());
         assert_eq!(metas.len(), 1);
         let m = &metas[0];
-        assert_eq!(m.description, "Custom plugin");
+        assert_eq!(m.description, "Custom widget");
         assert!(m.components.is_empty());
         assert!(!m.has_compact);
     }

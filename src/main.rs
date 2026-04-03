@@ -49,20 +49,20 @@ enum Cli {
         /// Session ID
         sid: String,
     },
-    /// Install a community plugin from GitHub (owner/repo or owner/repo/name)
+    /// Install a community widget from GitHub (owner/repo or owner/repo/name)
     Install {
-        /// GitHub source: owner/repo or owner/repo/plugin-name
+        /// GitHub source: owner/repo or owner/repo/widget-name
         source: String,
         /// Overwrite if already installed
         #[arg(long)]
         force: bool,
     },
-    /// Uninstall a plugin by name
+    /// Uninstall a widget by name
     Uninstall {
-        /// Plugin name to remove
+        /// Widget name to remove
         name: String,
     },
-    /// Manage plugin marketplace sources
+    /// Manage widget marketplace sources
     Marketplace {
         #[command(subcommand)]
         cmd: marketplace::MarketplaceCmd,
@@ -88,7 +88,7 @@ fn main() -> anyhow::Result<()> {
                 println!("{w}");
             }
             for p in plugin::list_plugins() {
-                println!("{p} [plugin]");
+                println!("{p}");
             }
             Ok(())
         }

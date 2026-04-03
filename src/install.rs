@@ -99,7 +99,7 @@ pub(crate) fn install_one_in(
     force: bool,
 ) -> anyhow::Result<()> {
     if name.contains('/') || name.contains('\\') || name.starts_with('.') || name.contains('\0') {
-        bail!("unsafe plugin name: '{name}'");
+        bail!("unsafe widget name: '{name}'");
     }
 
     if widgets::AVAILABLE.contains(&name) {
@@ -118,7 +118,7 @@ pub(crate) fn install_one_in(
         script_path.exists() || sh_path.exists() || py_path.exists() || bare_path.exists();
 
     if already_exists && !force {
-        bail!("plugin '{name}' already installed (use --force to overwrite)");
+        bail!("widget '{name}' already installed (use --force to overwrite)");
     }
 
     if already_exists && force {
@@ -186,7 +186,7 @@ fn install_single(
     {
         (bytes, "py", name)
     } else {
-        bail!("plugin '{name}' not found in {owner}/{repo} (tried root and {name}/ subdir)");
+        bail!("widget '{name}' not found in {owner}/{repo} (tried root and {name}/ subdir)");
     };
 
     let toml_path = if prefix.is_empty() {
@@ -204,7 +204,7 @@ fn install_single(
 fn install_all(owner: &str, repo: &str, dir: &Path, force: bool) -> anyhow::Result<()> {
     let files = list_repo_plugins(owner, repo)?;
     if files.is_empty() {
-        bail!("no .sh/.py plugins found in {owner}/{repo}");
+        bail!("no .sh/.py widgets found in {owner}/{repo}");
     }
 
     let mut installed = 0usize;
@@ -258,12 +258,12 @@ fn install_all(owner: &str, repo: &str, dir: &Path, force: bool) -> anyhow::Resu
     }
 
     if installed == 0 {
-        bail!("no plugins were installed ({errors} errors)");
+        bail!("no widgets were installed ({errors} errors)");
     }
     if errors > 0 {
-        println!("{installed} plugin(s) installed, {errors} skipped");
+        println!("{installed} widget(s) installed, {errors} skipped");
     } else {
-        println!("{installed} plugin(s) installed");
+        println!("{installed} widget(s) installed");
     }
     Ok(())
 }
