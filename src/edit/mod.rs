@@ -11,7 +11,7 @@ use crate::theme::{
     ansi_256_to_hex, BarStyle, PaletteRole, ThemePalette, CURATED_COLORS, PALETTE_ROLES,
     THEME_PRESETS,
 };
-use crate::types::ColorValue;
+use crate::types::ThemeValue;
 use widget_reference::{component_desc, widget_ref, WIDGETS};
 
 // ---- entry point -----------------------------------------------------------
@@ -312,41 +312,27 @@ fn widget_preview(
     config: &StatuslineConfig,
 ) -> Element {
     use crate::theme::ansi_256_to_hex;
-    let merged_tc;
-    let tc = if let Some(wref) = widget_ref(name) {
-        let colors = config.widgets.get(name).and_then(|wc| wc.colors.as_ref());
-        let needs_merge = colors.is_some() || !wref.color_slots.is_empty();
-        if needs_merge {
-            merged_tc = {
-                use crate::types::ColorValue;
-                let mut tc = config.palette.to_theme_config();
-                // Apply palette default roles first
-                for slot in wref.color_slots {
-                    if let Some(role) = slot.default_role {
-                        tc.set_field(slot.theme_field, Some(config.palette.resolve(role)));
-                    }
-                }
-                // Explicit per-widget overrides take precedence
-                if let Some(colors) = colors {
-                    for slot in wref.color_slots {
-                        if let Some(color_val) = colors.get(slot.key) {
-                            let idx = match color_val {
-                                ColorValue::Custom(n) => *n,
-                                ColorValue::Role(r) => config.palette.resolve(*r),
-                            };
-                            tc.set_field(slot.theme_field, Some(idx));
-                        }
-                    }
-                }
-                tc
-            };
-            &merged_tc
-        } else {
-            &crate::theme::ThemeConfig::default()
+
+    // Build effective palette: start from global palette, apply per-widget color slot overrides.
+    let mut pal = config.palette.clone();
+    if let Some(wref) = widget_ref(name) {
+        let per_widget_theme = config.widgets.get(name).and_then(|wc| wc.theme.as_ref());
+        for slot in wref.color_slots {
+            let idx = config.palette.resolve(slot.palette_role);
+            pal.set_role(slot.palette_role, idx);
         }
-    } else {
-        &crate::theme::ThemeConfig::default()
-    };
+        if let Some(theme_map) = per_widget_theme {
+            for slot in wref.color_slots {
+                if let Some(tv) = theme_map.get(slot.key) {
+                    let idx = match tv {
+                        ThemeValue::Custom(n) => *n,
+                        ThemeValue::Role(r) => config.palette.resolve(*r),
+                    };
+                    pal.set_role(slot.palette_role, idx);
+                }
+            }
+        }
+    }
 
     let widget_icons: std::collections::HashMap<String, String> = config
         .widgets
@@ -361,13 +347,13 @@ fn widget_preview(
         .and_then(|wc| wc.bar_style.clone())
         .unwrap_or_else(|| config.bar_style.clone());
 
-    let dim_s = ansi_256_to_hex(tc.dim.unwrap_or(242));
-    let blue_s = ansi_256_to_hex(tc.cyan.unwrap_or(111));
-    let green_s = ansi_256_to_hex(tc.green.unwrap_or(114));
-    let orange_s = ansi_256_to_hex(tc.orange.unwrap_or(215));
-    let red_s = ansi_256_to_hex(tc.red.unwrap_or(203));
-    let purple_s = ansi_256_to_hex(tc.purple.unwrap_or(183));
-    let yellow_s = ansi_256_to_hex(tc.yellow.unwrap_or(228));
+    let dim_s = ansi_256_to_hex(pal.muted);
+    let blue_s = ansi_256_to_hex(pal.primary);
+    let green_s = ansi_256_to_hex(pal.success);
+    let orange_s = ansi_256_to_hex(pal.warning);
+    let red_s = ansi_256_to_hex(pal.danger);
+    let purple_s = ansi_256_to_hex(pal.accent);
+    let yellow_s = ansi_256_to_hex(pal.warning);
     let dim = dim_s.as_str();
     let blue = blue_s.as_str();
     let green = green_s.as_str();
@@ -597,28 +583,25 @@ fn widget_preview(
         }
         "session" => rsx! { span { style: "color:{dim}", "a3f9" } },
         _ => {
-            // Build palette-aware effective theme, then apply per-widget color overrides.
-            let effective_theme = {
-                let mut etc = config.palette.to_theme_config();
-                if let Some(wmeta) = crate::plugin::widget_meta(name) {
-                    if let Some(wc) = config.widgets.get(name) {
-                        if let Some(ref colors) = wc.colors {
-                            for slot in &wmeta.color_slots {
-                                if let Some(color_val) = colors.get(&slot.key) {
-                                    let idx = match color_val {
-                                        ColorValue::Custom(n) => *n,
-                                        ColorValue::Role(r) => config.palette.resolve(*r),
-                                    };
-                                    etc.set_field(&slot.theme_field, Some(idx));
-                                }
+            // Build palette-aware effective palette, then apply per-widget color overrides.
+            let wmeta = crate::plugin::widget_meta(name);
+            let mut plugin_palette = config.palette.clone();
+            if let (Some(ref wmeta), Some(wc)) = (&wmeta, config.widgets.get(name)) {
+                if let Some(ref theme_map) = wc.theme {
+                    for slot in &wmeta.theme_slots {
+                        if let Some(tv) = theme_map.get(&slot.key) {
+                            let idx = match tv {
+                                ThemeValue::Custom(n) => *n,
+                                ThemeValue::Role(r) => config.palette.resolve(*r),
+                            };
+                            if let Some(role) = slot.palette_role {
+                                plugin_palette.set_role(role, idx);
                             }
                         }
                     }
                 }
-                etc.to_theme()
-            };
+            }
             let plugin_icons: serde_json::Value = {
-                let wmeta = crate::plugin::widget_meta(name);
                 let user_icons = config.widgets.get(name).and_then(|wc| wc.icons.as_ref());
                 let mut map = serde_json::Map::new();
                 if let Some(ref wmeta) = wmeta {
@@ -637,24 +620,15 @@ fn widget_preview(
                 "config": {
                     "compact": compact,
                     "components": components,
-                    "theme": {
-                        "green": effective_theme.green,
-                        "orange": effective_theme.orange,
-                        "red": effective_theme.red,
-                        "dim": effective_theme.dim,
-                        "lgray": effective_theme.lgray,
-                        "cyan": effective_theme.cyan,
-                        "purple": effective_theme.purple,
-                        "yellow": effective_theme.yellow,
-                        "reset": effective_theme.reset,
-                        "dim_green": effective_theme.dim_green,
-                        "dim_yellow": effective_theme.dim_yellow,
-                        "dim_orange": effective_theme.dim_orange,
-                        "dim_red": effective_theme.dim_red,
-                        "dim_cyan": effective_theme.dim_cyan,
-                        "dim_pink": effective_theme.dim_pink,
-                        "italic": effective_theme.italic,
-                        "no_italic": effective_theme.no_italic,
+                    "palette": {
+                        "primary": crate::theme::ansi(plugin_palette.primary),
+                        "accent": crate::theme::ansi(plugin_palette.accent),
+                        "success": crate::theme::ansi(plugin_palette.success),
+                        "warning": crate::theme::ansi(plugin_palette.warning),
+                        "danger": crate::theme::ansi(plugin_palette.danger),
+                        "muted": crate::theme::ansi(plugin_palette.muted),
+                        "subtle": crate::theme::ansi(plugin_palette.subtle),
+                        "reset": crate::theme::RESET,
                     },
                     "icons": plugin_icons,
                     "bar_style": "block",
@@ -882,17 +856,17 @@ fn ColorInputRow(
 #[component]
 fn WidgetColorPicker(
     label: String,
-    value: Option<ColorValue>,
+    value: Option<ThemeValue>,
     palette: ThemePalette,
     default_role: Option<PaletteRole>,
-    on_change: EventHandler<Option<ColorValue>>,
+    on_change: EventHandler<Option<ThemeValue>>,
 ) -> Element {
     let mut custom_open = use_signal(|| false);
 
     // Resolve the effective ANSI index for the preview swatch.
     let effective_idx = match &value {
-        Some(ColorValue::Custom(n)) => *n,
-        Some(ColorValue::Role(r)) => palette.resolve(*r),
+        Some(ThemeValue::Custom(n)) => *n,
+        Some(ThemeValue::Role(r)) => palette.resolve(*r),
         None => match default_role {
             Some(r) => palette.resolve(r),
             None => 242,
@@ -925,7 +899,7 @@ fn WidgetColorPicker(
                         let role = *role;
                         let role_idx = palette.resolve(role);
                         let role_hex = ansi_256_to_hex(role_idx);
-                        let is_active = matches!(&value, Some(ColorValue::Role(r)) if *r == role);
+                        let is_active = matches!(&value, Some(ThemeValue::Role(r)) if *r == role);
                         let is_default_hint = value.is_none() && default_role == Some(role);
                         let border = if is_active {
                             "2px solid #ffffff".to_string()
@@ -938,7 +912,7 @@ fn WidgetColorPicker(
                             div {
                                 key: "{role.name()}",
                                 style: "display:flex; flex-direction:column; align-items:center; gap:2px; cursor:pointer;",
-                                onclick: move |_| on_change.call(Some(ColorValue::Role(role))),
+                                onclick: move |_| on_change.call(Some(ThemeValue::Role(role))),
                                 div {
                                     style: "width:20px; height:20px; border-radius:4px; background:{role_hex}; border:{border}; box-sizing:border-box;",
                                 }
@@ -950,7 +924,7 @@ fn WidgetColorPicker(
                 // Custom toggle button
                 {
                     let custom_idx_opt = match &value {
-                        Some(ColorValue::Custom(n)) => Some(*n),
+                        Some(ThemeValue::Custom(n)) => Some(*n),
                         _ => None,
                     };
                     let custom_hex = custom_idx_opt
@@ -982,7 +956,7 @@ fn WidgetColorPicker(
                     for &idx in CURATED_COLORS {
                         {
                             let hex = ansi_256_to_hex(idx);
-                            let is_active = matches!(&value, Some(ColorValue::Custom(n)) if *n == idx);
+                            let is_active = matches!(&value, Some(ThemeValue::Custom(n)) if *n == idx);
                             let border = if is_active {
                                 "2px solid #ffffff"
                             } else {
@@ -993,7 +967,7 @@ fn WidgetColorPicker(
                                     key: "{idx}",
                                     style: "width:16px; height:16px; border-radius:2px; background:{hex}; cursor:pointer; border:{border}; box-sizing:border-box;",
                                     onclick: move |_| {
-                                        on_change.call(Some(ColorValue::Custom(idx)));
+                                        on_change.call(Some(ThemeValue::Custom(idx)));
                                         custom_open.set(false);
                                     },
                                 }
@@ -1625,7 +1599,7 @@ fn WidgetAccordion(
         let has_override =
             wc.is_some_and(|w: &crate::types::WidgetConfig| w.has_appearance_overrides());
         (
-            wc.and_then(|w| w.colors.clone()).unwrap_or_default(),
+            wc.and_then(|w| w.theme.clone()).unwrap_or_default(),
             wc.and_then(|w| w.icons.clone()).unwrap_or_default(),
             wc.and_then(|w| w.bar_style.clone()),
             has_override,
@@ -1640,7 +1614,7 @@ fn WidgetAccordion(
     };
     let custom_color_slots = wmeta
         .as_ref()
-        .map(|m| m.color_slots.clone())
+        .map(|m| m.theme_slots.clone())
         .unwrap_or_default();
     let custom_icon_slots = wmeta
         .as_ref()
@@ -1663,7 +1637,7 @@ fn WidgetAccordion(
     // Determine if this widget uses bar-style widgets
     let show_bar_style = matches!(widget_name.as_str(), "context_bar" | "quota");
 
-    let wref_color_slots: &[widget_reference::ColorSlot] = widget_ref(widget_name.as_str())
+    let wref_color_slots: &[widget_reference::ThemeSlot] = widget_ref(widget_name.as_str())
         .map(|w| w.color_slots)
         .unwrap_or(&[]);
     let wref_icon_slots: &[widget_reference::IconSlot] = widget_ref(widget_name.as_str())
@@ -1784,8 +1758,8 @@ fn WidgetAccordion(
                                         let slot_key = slot.key.to_string();
                                         let slot_key_for_closure = slot_key.clone();
                                         let label = slot.label;
-                                        let default_role = slot.default_role;
-                                        let current_val: Option<ColorValue> =
+                                        let default_role = Some(slot.palette_role);
+                                        let current_val: Option<ThemeValue> =
                                             widget_colors.get(slot.key).cloned();
                                         rsx! {
                                             WidgetColorPicker {
@@ -1794,16 +1768,16 @@ fn WidgetAccordion(
                                                 value: current_val,
                                                 palette: palette.clone(),
                                                 default_role,
-                                                on_change: move |v: Option<ColorValue>| {
+                                                on_change: move |v: Option<ThemeValue>| {
                                                     let mut binding = config.write();
                                                     let wc = binding.widgets.entry(wna.clone()).or_default();
-                                                    let colors = wc.colors.get_or_insert_with(Default::default);
+                                                    let theme_map = wc.theme.get_or_insert_with(Default::default);
                                                     match v {
-                                                        Some(cv) => { colors.insert(slot_key_for_closure.clone(), cv); }
-                                                        None => { colors.remove(&slot_key_for_closure); }
+                                                        Some(cv) => { theme_map.insert(slot_key_for_closure.clone(), cv); }
+                                                        None => { theme_map.remove(&slot_key_for_closure); }
                                                     }
-                                                    if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
-                                                        wc.colors = None;
+                                                    if wc.theme.as_ref().is_some_and(|m: &std::collections::HashMap<String, ThemeValue>| m.is_empty()) {
+                                                        wc.theme = None;
                                                     }
                                                     drop(binding);
                                                     autosave(&config);
@@ -1885,7 +1859,7 @@ fn WidgetAccordion(
                                         let slot_key = slot.key.clone();
                                         let slot_key2 = slot.key.clone();
                                         let label = slot.key.clone();
-                                        let current_val: Option<ColorValue> = widget_colors.get(&slot.key).cloned();
+                                        let current_val: Option<ThemeValue> = widget_colors.get(&slot.key).cloned();
                                         rsx! {
                                             WidgetColorPicker {
                                                 key: "{slot_key}",
@@ -1893,16 +1867,16 @@ fn WidgetAccordion(
                                                 value: current_val,
                                                 palette: palette.clone(),
                                                 default_role: None,
-                                                on_change: move |v: Option<ColorValue>| {
+                                                on_change: move |v: Option<ThemeValue>| {
                                                     let mut binding = config.write();
                                                     let wc = binding.widgets.entry(wna.clone()).or_default();
-                                                    let colors = wc.colors.get_or_insert_with(Default::default);
+                                                    let theme_map = wc.theme.get_or_insert_with(Default::default);
                                                     match v {
-                                                        Some(cv) => { colors.insert(slot_key2.clone(), cv); }
-                                                        None => { colors.remove(&slot_key2); }
+                                                        Some(cv) => { theme_map.insert(slot_key2.clone(), cv); }
+                                                        None => { theme_map.remove(&slot_key2); }
                                                     }
-                                                    if wc.colors.as_ref().is_some_and(|m| m.is_empty()) {
-                                                        wc.colors = None;
+                                                    if wc.theme.as_ref().is_some_and(|m: &std::collections::HashMap<String, ThemeValue>| m.is_empty()) {
+                                                        wc.theme = None;
                                                     }
                                                     drop(binding);
                                                     autosave(&config);
@@ -2024,7 +1998,7 @@ fn WidgetAccordion(
                                 style: "background:transparent; border:none; color:#f38ba8; font-size:12px; cursor:pointer; text-decoration:underline;",
                                 onclick: move |_| {
                                     if let Some(wc) = config.write().widgets.get_mut(&wn_reset_appearance) {
-                                        wc.colors = None;
+                                        wc.theme = None;
                                         wc.icons = None;
                                         wc.bar_style = None;
                                     }

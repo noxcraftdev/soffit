@@ -93,9 +93,9 @@ pub fn list_plugin_metas() -> Vec<PluginMeta> {
 }
 
 #[derive(Debug, Clone)]
-pub struct OwnedColorSlot {
+pub struct OwnedThemeSlot {
     pub key: String,
-    pub theme_field: String,
+    pub palette_role: Option<crate::theme::PaletteRole>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,20 +106,24 @@ pub struct OwnedIconSlot {
 
 #[derive(Debug, Clone)]
 pub struct WidgetMeta {
-    pub color_slots: Vec<OwnedColorSlot>,
+    pub theme_slots: Vec<OwnedThemeSlot>,
     pub icon_slots: Vec<OwnedIconSlot>,
+}
+
+fn palette_role_from_name(s: &str) -> Option<crate::theme::PaletteRole> {
+    crate::theme::PaletteRole::from_name(s)
 }
 
 pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
     use crate::edit::widget_reference::widget_ref;
     if let Some(wref) = widget_ref(name) {
         return Some(WidgetMeta {
-            color_slots: wref
+            theme_slots: wref
                 .color_slots
                 .iter()
-                .map(|s| OwnedColorSlot {
+                .map(|s| OwnedThemeSlot {
                     key: s.key.to_string(),
-                    theme_field: s.theme_field.to_string(),
+                    palette_role: Some(s.palette_role),
                 })
                 .collect(),
             icon_slots: wref
@@ -140,11 +144,11 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
         return None;
     }
     let toml_path = dir.join(format!("{name}.toml"));
-    let (color_slots, icon_slots) = std::fs::read_to_string(&toml_path)
+    let (theme_slots, icon_slots) = std::fs::read_to_string(&toml_path)
         .ok()
         .and_then(|raw| raw.parse::<toml::Table>().ok())
         .map(|table| {
-            let cs = table
+            let ts = table
                 .get("colors")
                 .and_then(|v| v.as_table())
                 .map(|colors_table| {
@@ -152,9 +156,13 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
                         .iter()
                         .filter_map(|(key, val)| {
                             let sub = val.as_table()?;
-                            Some(OwnedColorSlot {
+                            let role = sub
+                                .get("palette_role")
+                                .and_then(|v| v.as_str())
+                                .and_then(palette_role_from_name);
+                            Some(OwnedThemeSlot {
                                 key: key.clone(),
-                                theme_field: sub.get("theme_field")?.as_str()?.to_string(),
+                                palette_role: role,
                             })
                         })
                         .collect::<Vec<_>>()
@@ -180,11 +188,11 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            (cs, is)
+            (ts, is)
         })
         .unwrap_or_default();
     Some(WidgetMeta {
-        color_slots,
+        theme_slots,
         icon_slots,
     })
 }

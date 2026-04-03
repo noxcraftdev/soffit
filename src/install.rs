@@ -303,13 +303,13 @@ mod tests {
             install_one_in(dir.path(), "../../.bashrc", "sh", b"#!/bin/sh", None, false)
                 .unwrap_err()
                 .to_string()
-                .contains("unsafe plugin name")
+                .contains("unsafe widget name")
         );
         assert!(
             install_one_in(dir.path(), ".hidden", "sh", b"#!/bin/sh", None, false)
                 .unwrap_err()
                 .to_string()
-                .contains("unsafe plugin name")
+                .contains("unsafe widget name")
         );
     }
 

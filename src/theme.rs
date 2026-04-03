@@ -1,121 +1,17 @@
 use std::fmt;
 use std::str::FromStr;
 
-/// Runtime theme: fully resolved ANSI escape strings.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Theme {
-    pub green: String,
-    pub orange: String,
-    pub red: String,
-    pub dim: String,
-    pub lgray: String,
-    pub cyan: String,
-    pub purple: String,
-    pub yellow: String,
-    pub reset: String,
-    pub dim_green: String,
-    pub dim_yellow: String,
-    pub dim_orange: String,
-    pub dim_red: String,
-    pub dim_cyan: String,
-    pub dim_pink: String,
-    pub italic: String,
-    pub no_italic: String,
+pub fn ansi(idx: u8) -> String {
+    format!("\x1b[38;5;{idx}m")
 }
 
-impl Default for Theme {
-    fn default() -> Self {
-        Self {
-            green: "\x1b[38;5;114m".into(),
-            orange: "\x1b[38;5;215m".into(),
-            red: "\x1b[38;5;203m".into(),
-            dim: "\x1b[38;5;242m".into(),
-            lgray: "\x1b[38;5;250m".into(),
-            cyan: "\x1b[38;5;111m".into(),
-            purple: "\x1b[38;5;183m".into(),
-            yellow: "\x1b[38;5;228m".into(),
-            reset: "\x1b[0m".into(),
-            dim_green: "\x1b[38;5;65m".into(),
-            dim_yellow: "\x1b[38;5;136m".into(),
-            dim_orange: "\x1b[38;5;130m".into(),
-            dim_red: "\x1b[38;5;131m".into(),
-            dim_cyan: "\x1b[38;5;67m".into(),
-            dim_pink: "\x1b[38;5;175m".into(),
-            italic: "\x1b[3m".into(),
-            no_italic: "\x1b[23m".into(),
-        }
-    }
-}
-
-/// User-facing config: 256-color indices. `None` means "use default".
-#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ThemeConfig {
-    pub green: Option<u8>,
-    pub orange: Option<u8>,
-    pub red: Option<u8>,
-    pub dim: Option<u8>,
-    pub lgray: Option<u8>,
-    pub cyan: Option<u8>,
-    pub purple: Option<u8>,
-    pub yellow: Option<u8>,
-    pub dim_green: Option<u8>,
-    pub dim_yellow: Option<u8>,
-    pub dim_orange: Option<u8>,
-    pub dim_red: Option<u8>,
-    pub dim_cyan: Option<u8>,
-    pub dim_pink: Option<u8>,
-}
-
-impl ThemeConfig {
-    #[allow(dead_code)]
-    pub fn set_field(&mut self, name: &str, value: Option<u8>) {
-        match name {
-            "green" => self.green = value,
-            "orange" => self.orange = value,
-            "red" => self.red = value,
-            "dim" => self.dim = value,
-            "lgray" => self.lgray = value,
-            "cyan" => self.cyan = value,
-            "purple" => self.purple = value,
-            "yellow" => self.yellow = value,
-            "dim_green" => self.dim_green = value,
-            "dim_yellow" => self.dim_yellow = value,
-            "dim_orange" => self.dim_orange = value,
-            "dim_red" => self.dim_red = value,
-            "dim_cyan" => self.dim_cyan = value,
-            "dim_pink" => self.dim_pink = value,
-            _ => {}
-        }
-    }
-
-    pub fn to_theme(&self) -> Theme {
-        let c = |custom: Option<u8>, fallback: &'static str| -> String {
-            match custom {
-                Some(idx) => format!("\x1b[38;5;{idx}m"),
-                None => fallback.into(),
-            }
-        };
-        Theme {
-            green: c(self.green, "\x1b[38;5;114m"),
-            orange: c(self.orange, "\x1b[38;5;215m"),
-            red: c(self.red, "\x1b[38;5;203m"),
-            dim: c(self.dim, "\x1b[38;5;242m"),
-            lgray: c(self.lgray, "\x1b[38;5;250m"),
-            cyan: c(self.cyan, "\x1b[38;5;111m"),
-            purple: c(self.purple, "\x1b[38;5;183m"),
-            yellow: c(self.yellow, "\x1b[38;5;228m"),
-            reset: "\x1b[0m".into(),
-            dim_green: c(self.dim_green, "\x1b[38;5;65m"),
-            dim_yellow: c(self.dim_yellow, "\x1b[38;5;136m"),
-            dim_orange: c(self.dim_orange, "\x1b[38;5;130m"),
-            dim_red: c(self.dim_red, "\x1b[38;5;131m"),
-            dim_cyan: c(self.dim_cyan, "\x1b[38;5;67m"),
-            dim_pink: c(self.dim_pink, "\x1b[38;5;175m"),
-            italic: "\x1b[3m".into(),
-            no_italic: "\x1b[23m".into(),
-        }
-    }
-}
+pub const RESET: &str = "\x1b[0m";
+pub const ITALIC: &str = "\x1b[3m";
+pub const NO_ITALIC: &str = "\x1b[23m";
+pub const DIM_SUCCESS: &str = "\x1b[38;5;65m";
+pub const DIM_WARNING: &str = "\x1b[38;5;130m";
+pub const DIM_DANGER: &str = "\x1b[38;5;131m";
+pub const DIM_PRIMARY: &str = "\x1b[38;5;67m";
 
 /// Semantic roles for a theme palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,22 +117,15 @@ impl ThemePalette {
         }
     }
 
-    pub fn to_theme_config(&self) -> ThemeConfig {
-        ThemeConfig {
-            green: Some(self.success),
-            orange: Some(self.warning),
-            red: Some(self.danger),
-            dim: Some(self.muted),
-            lgray: Some(self.subtle),
-            cyan: Some(self.primary),
-            purple: Some(self.accent),
-            yellow: None,
-            dim_green: None,
-            dim_yellow: None,
-            dim_orange: None,
-            dim_red: None,
-            dim_cyan: None,
-            dim_pink: None,
+    pub fn set_role(&mut self, role: PaletteRole, idx: u8) {
+        match role {
+            PaletteRole::Primary => self.primary = idx,
+            PaletteRole::Accent => self.accent = idx,
+            PaletteRole::Success => self.success = idx,
+            PaletteRole::Warning => self.warning = idx,
+            PaletteRole::Danger => self.danger = idx,
+            PaletteRole::Muted => self.muted = idx,
+            PaletteRole::Subtle => self.subtle = idx,
         }
     }
 }
@@ -337,32 +226,6 @@ pub struct IconsConfig {
 }
 
 impl IconsConfig {
-    #[allow(dead_code)]
-    pub fn get_string_field(&self, name: &str) -> Option<&str> {
-        match name {
-            "duration" => self.duration.as_deref(),
-            "cost" => self.cost.as_deref(),
-            "git_branch" => self.git_branch.as_deref(),
-            "git_staged" => self.git_staged.as_deref(),
-            "agent" => self.agent.as_deref(),
-            "update" => self.update.as_deref(),
-            _ => None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn get_char_field(&self, name: &str) -> Option<char> {
-        match name {
-            "bar_fill" => self.bar_fill,
-            "bar_empty" => self.bar_empty,
-            "bar_half" => self.bar_half,
-            "quota_fill" => self.quota_fill,
-            "quota_empty" => self.quota_empty,
-            "quota_pace" => self.quota_pace,
-            _ => None,
-        }
-    }
-
     #[allow(dead_code)]
     pub fn set_string_field(&mut self, name: &str, value: Option<String>) {
         match name {
@@ -522,52 +385,6 @@ pub fn ansi_256_to_hex(idx: u8) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::colors;
-
-    #[test]
-    fn default_theme_matches_colors() {
-        let t = Theme::default();
-        assert_eq!(t.green, colors::GREEN);
-        assert_eq!(t.orange, colors::ORANGE);
-        assert_eq!(t.red, colors::RED);
-        assert_eq!(t.dim, colors::DIM);
-        assert_eq!(t.lgray, colors::LGRAY);
-        assert_eq!(t.cyan, colors::CYAN);
-        assert_eq!(t.purple, colors::PURPLE);
-        assert_eq!(t.yellow, colors::YELLOW);
-        assert_eq!(t.reset, colors::RESET);
-        assert_eq!(t.dim_green, colors::DIM_GREEN);
-        assert_eq!(t.dim_yellow, colors::DIM_YELLOW);
-        assert_eq!(t.dim_orange, colors::DIM_ORANGE);
-        assert_eq!(t.dim_red, colors::DIM_RED);
-        assert_eq!(t.dim_cyan, colors::DIM_CYAN);
-        assert_eq!(t.dim_pink, colors::DIM_PINK);
-        assert_eq!(t.italic, colors::ITALIC);
-        assert_eq!(t.no_italic, colors::NO_ITALIC);
-    }
-
-    #[test]
-    fn custom_theme_single_override() {
-        let cfg = ThemeConfig {
-            green: Some(46),
-            ..ThemeConfig::default()
-        };
-        let t = cfg.to_theme();
-        assert_eq!(t.green, "\x1b[38;5;46m");
-        // All others should match defaults
-        let d = Theme::default();
-        assert_eq!(t.orange, d.orange);
-        assert_eq!(t.red, d.red);
-        assert_eq!(t.dim, d.dim);
-        assert_eq!(t.reset, d.reset);
-        assert_eq!(t.italic, d.italic);
-        assert_eq!(t.no_italic, d.no_italic);
-    }
-
-    #[test]
-    fn theme_config_default_produces_default_theme() {
-        assert_eq!(ThemeConfig::default().to_theme(), Theme::default());
-    }
 
     #[test]
     fn ansi_256_to_hex_known_values() {
@@ -626,27 +443,11 @@ mod tests {
     }
 
     #[test]
-    fn theme_config_get_set_field() {
-        let mut tc = ThemeConfig::default();
-        assert_eq!(tc.get_field("green"), None);
-        tc.set_field("green", Some(46));
-        assert_eq!(tc.get_field("green"), Some(46));
-        assert_eq!(tc.green, Some(46));
-        tc.set_field("green", None);
-        assert_eq!(tc.get_field("green"), None);
-        // Unknown field is a no-op
-        tc.set_field("nonexistent", Some(99));
-        assert_eq!(tc.get_field("nonexistent"), None);
-    }
-
-    #[test]
     fn icons_config_get_set_fields() {
         let mut ic = IconsConfig::default();
-        assert_eq!(ic.get_string_field("cost"), None);
         ic.set_string_field("cost", Some("$$$".into()));
-        assert_eq!(ic.get_string_field("cost"), Some("$$$"));
-        assert_eq!(ic.get_char_field("bar_fill"), None);
+        assert_eq!(ic.cost.as_deref(), Some("$$$"));
         ic.set_char_field("bar_fill", Some('X'));
-        assert_eq!(ic.get_char_field("bar_fill"), Some('X'));
+        assert_eq!(ic.bar_fill, Some('X'));
     }
 }

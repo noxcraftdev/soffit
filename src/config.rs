@@ -153,8 +153,8 @@ impl StatuslineConfig {
                 "components".to_string(),
                 toml::Value::try_from(wc.components.clone())?,
             );
-            if let Some(ref colors) = wc.colors {
-                wc_table.insert("colors".to_string(), toml::Value::try_from(colors.clone())?);
+            if let Some(ref theme) = wc.theme {
+                wc_table.insert("theme".to_string(), toml::Value::try_from(theme.clone())?);
             }
             if let Some(ref icons) = wc.icons {
                 wc_table.insert("icons".to_string(), toml::Value::try_from(icons.clone())?);
@@ -362,25 +362,25 @@ mod tests {
         let mut f = NamedTempFile::new()?;
         writeln!(
             f,
-            "[statusline_widgets.cost]\ncompact = true\ncomponents = [\"session\"]\n\n[statusline_widgets.cost.colors]\nwithin_budget = 46\nover_budget = 196"
+            "[statusline_widgets.cost]\ncompact = true\ncomponents = [\"session\"]\n\n[statusline_widgets.cost.theme]\nwithin_budget = 46\nover_budget = 196"
         )?;
         let config = load_from_path(f.path())?;
         let cost_cfg = config.widgets.get("cost").expect("cost widget config");
         assert!(cost_cfg.compact);
-        use crate::types::ColorValue;
-        let colors = cost_cfg.colors.as_ref().expect("per-widget colors");
-        assert_eq!(colors.get("within_budget"), Some(&ColorValue::Custom(46)));
-        assert_eq!(colors.get("over_budget"), Some(&ColorValue::Custom(196)));
+        use crate::types::ThemeValue;
+        let colors = cost_cfg.theme.as_ref().expect("per-widget colors");
+        assert_eq!(colors.get("within_budget"), Some(&ThemeValue::Custom(46)));
+        assert_eq!(colors.get("over_budget"), Some(&ThemeValue::Custom(196)));
         assert_eq!(colors.get("approaching"), None);
         save_to_path(&config, f.path())?;
         let reloaded = load_from_path(f.path())?;
         let colors2 = reloaded
             .widgets
             .get("cost")
-            .and_then(|c| c.colors.as_ref())
+            .and_then(|c| c.theme.as_ref())
             .expect("per-widget colors after round-trip");
-        assert_eq!(colors2.get("within_budget"), Some(&ColorValue::Custom(46)));
-        assert_eq!(colors2.get("over_budget"), Some(&ColorValue::Custom(196)));
+        assert_eq!(colors2.get("within_budget"), Some(&ThemeValue::Custom(46)));
+        assert_eq!(colors2.get("over_budget"), Some(&ThemeValue::Custom(196)));
         Ok(())
     }
 
@@ -418,7 +418,7 @@ mod tests {
         )?;
         let config = load_from_path(f.path())?;
         let git_cfg = config.widgets.get("git").expect("git widget config");
-        assert!(git_cfg.colors.is_none());
+        assert!(git_cfg.theme.is_none());
         assert!(git_cfg.icons.is_none());
         assert!(git_cfg.bar_style.is_none());
         Ok(())

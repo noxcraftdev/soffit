@@ -17,8 +17,8 @@ use crate::cache;
 use crate::config::StatuslineConfig;
 use crate::fmt::*;
 use crate::paths;
-use crate::theme::{BarStyle, IconsConfig, Theme, ThemePalette};
-use crate::types::{ColorValue, InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
+use crate::theme::{ansi, BarStyle, IconsConfig, ThemePalette, ITALIC, NO_ITALIC, RESET};
+use crate::types::{InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
 
 pub const AVAILABLE: &[&str] = &[
     "context_bar",
@@ -38,18 +38,10 @@ pub struct WidgetContext {
     pub input_tokens: u64,
     pub compact_size: Option<u64>,
     pub terminal_width: u16,
-    pub theme: Theme,
     pub icons: IconsConfig,
     pub bar_style: BarStyle,
     pub use_unicode_text: bool,
     pub palette: ThemePalette,
-}
-
-fn resolve_color(val: &ColorValue, palette: &ThemePalette) -> u8 {
-    match val {
-        ColorValue::Role(r) => palette.resolve(*r),
-        ColorValue::Custom(n) => *n,
-    }
 }
 
 pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContext {
@@ -125,7 +117,6 @@ pub fn build_context(data: StdinData, config: &StatuslineConfig) -> WidgetContex
         input_tokens,
         compact_size,
         terminal_width,
-        theme: config.palette.to_theme_config().to_theme(),
         icons: crate::theme::IconsConfig::default(),
         bar_style: config.bar_style.clone(),
         use_unicode_text: config.use_unicode_text,
@@ -221,7 +212,7 @@ fn spawn_bg_fetch(lock: &str, arg: &str) {
 }
 
 pub fn render_version(ctx: &WidgetContext, compact: bool, components: &[String]) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let version = ctx.data.version.as_deref().filter(|v| !v.is_empty())?;
     let model_raw = ctx
         .data
@@ -243,20 +234,20 @@ pub fn render_version(ctx: &WidgetContext, compact: bool, components: &[String])
         match comp {
             "update" if has_update || has_self_update => {
                 let icon = ctx.icons.update.as_deref().unwrap_or("\u{2191} ");
-                parts.push(format!("{}{icon}{}", t.orange, t.reset));
+                parts.push(format!("{}{icon}{RESET}", ansi(p.warning)));
             }
             "version" => {
                 if compact || !ctx.use_unicode_text {
-                    parts.push(format!("{}{version}{}", t.dim, t.reset));
+                    parts.push(format!("{}{version}{RESET}", ansi(p.muted)));
                 } else {
-                    parts.push(format!("{}{}{}", t.dim, superscript(version), t.reset));
+                    parts.push(format!("{}{}{RESET}", ansi(p.muted), superscript(version)));
                 }
             }
             "model" if !model.is_empty() => {
                 if compact || !ctx.use_unicode_text {
-                    parts.push(format!("{}{model}{}", t.purple, t.reset));
+                    parts.push(format!("{}{model}{RESET}", ansi(p.accent)));
                 } else {
-                    parts.push(format!("{}{}{}", t.purple, subscript(&model), t.reset));
+                    parts.push(format!("{}{}{RESET}", ansi(p.accent), subscript(&model)));
                 }
             }
             _ => {}
@@ -276,7 +267,7 @@ pub fn render_context_bar(
     compact: bool,
     components: &[String],
 ) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let ctx_size = ctx.compact_size.or_else(|| {
         ctx.data
             .context_window
@@ -287,19 +278,18 @@ pub fn render_context_bar(
 
     // Responsive bar width: try 12 down to 4
     let bar_width = responsive_bar_width(ctx.terminal_width, 12, 4);
-    let (bar, col) = context_bar(ctx.pct, bar_width, t, &ctx.icons, &ctx.bar_style);
+    let (bar, col) = context_bar(ctx.pct, bar_width, p, &ctx.icons, &ctx.bar_style);
 
     let mut parts: Vec<String> = Vec::new();
     for comp in active_components(components, COMPONENTS_CONTEXT_BAR) {
         match comp {
             "bar" => parts.push(bar.clone()),
-            "pct" => parts.push(seg_pct(ctx.pct, &col, t)),
+            "pct" => parts.push(seg_pct(ctx.pct, &col, p)),
             "tokens" if !compact => {
                 parts.push(format!(
-                    "{}{}/{denom}{}",
-                    t.dim,
+                    "{}{}/{denom}{RESET}",
+                    ansi(p.muted),
                     fmt_tokens(ctx.input_tokens),
-                    t.reset
                 ));
             }
             _ => {}
@@ -332,13 +322,17 @@ pub fn render_duration(
     compact: bool,
     _components: &[String],
 ) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let ms = ctx.data.cost.as_ref()?.total_duration_ms?;
     if compact {
-        Some(format!("{}{}{}", t.lgray, fmt_duration(ms), t.reset))
+        Some(format!("{}{}{RESET}", ansi(p.subtle), fmt_duration(ms)))
     } else {
         let icon = ctx.icons.duration.as_deref().unwrap_or("\u{23f1} ");
-        Some(format!("{}{icon}{}{}", t.lgray, fmt_duration(ms), t.reset))
+        Some(format!(
+            "{}{icon}{}{RESET}",
+            ansi(p.subtle),
+            fmt_duration(ms)
+        ))
     }
 }
 
@@ -353,13 +347,13 @@ fn parse_daily_cache(s: &str) -> Option<(f64, f64, f64)> {
     }
 }
 
-fn color_for_budget(ratio: f64, theme: &Theme) -> &str {
+fn color_for_budget(ratio: f64, palette: &ThemePalette) -> String {
     if ratio >= 1.0 {
-        &theme.red
+        ansi(palette.danger)
     } else if ratio >= 0.7 {
-        &theme.orange
+        ansi(palette.warning)
     } else {
-        &theme.green
+        ansi(palette.success)
     }
 }
 
@@ -389,7 +383,7 @@ fn spawn_cost_refresh(sid: &str) {
 }
 
 pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let sid = ctx.data.session_id.as_deref().unwrap_or("");
     let daily_path = paths::cost_daily();
     let session_path = paths::cost_session(sid);
@@ -400,7 +394,7 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
     }
     let icon = ctx.icons.cost.as_deref().unwrap_or("\u{1f4b8} ");
     let Some((today_usd, week_usd, target)) = daily_parsed else {
-        return Some(format!("{icon}{}--{}", t.dim, t.reset));
+        return Some(format!("{icon}{}--{RESET}", ansi(p.muted)));
     };
 
     // Session cost: prefer direct stdin value, fall back to cache
@@ -423,8 +417,8 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
     } else {
         300.0 / 7.0
     };
-    let today_col = color_for_budget(today_usd / daily_pace, &ctx.theme);
-    let week_col = color_for_budget(week_usd / target.max(1.0), &ctx.theme);
+    let today_col = color_for_budget(today_usd / daily_pace, p);
+    let week_col = color_for_budget(week_usd / target.max(1.0), p);
 
     let active = active_components(components, COMPONENTS_COST);
     let mut parts: Vec<String> = Vec::new();
@@ -432,11 +426,11 @@ pub fn render_cost(ctx: &WidgetContext, compact: bool, components: &[String]) ->
         match *comp {
             "session" => {
                 if let Some(c) = session_cost {
-                    parts.push(format!("{}{}{}", t.dim, fmt_cost(c), t.reset));
+                    parts.push(format!("{}{}{RESET}", ansi(p.muted), fmt_cost(c)));
                 }
             }
-            "today" => parts.push(format!("{today_col}{}{}", fmt_cost(today_usd), t.reset)),
-            "week" => parts.push(format!("{week_col}{}{}", fmt_cost(week_usd), t.reset)),
+            "today" => parts.push(format!("{today_col}{}{RESET}", fmt_cost(today_usd))),
+            "week" => parts.push(format!("{week_col}{}{RESET}", fmt_cost(week_usd))),
             _ => {}
         }
     }
@@ -493,7 +487,7 @@ fn widget_git(
     cwd: Option<&str>,
     compact: bool,
     components: &[String],
-    theme: &Theme,
+    palette: &ThemePalette,
     icons: &IconsConfig,
 ) -> Option<String> {
     let cwd = match cwd {
@@ -526,7 +520,7 @@ fn widget_git(
         }
     }
 
-    let result = compute_git_segment(&cwd, compact, components, theme, icons);
+    let result = compute_git_segment(&cwd, compact, components, palette, icons);
 
     // Write to cache (empty string means "not a git dir")
     let cached_val = result.as_deref().unwrap_or("");
@@ -539,10 +533,10 @@ fn compute_git_segment(
     cwd: &str,
     compact: bool,
     components: &[String],
-    theme: &Theme,
+    palette: &ThemePalette,
     icons: &IconsConfig,
 ) -> Option<String> {
-    let t = theme;
+    let p = palette;
     let branch = git_run(&["branch", "--show-current"], cwd)
         .or_else(|| {
             git_run(&["rev-parse", "--short", "HEAD"], cwd).map(|h| h.chars().take(7).collect())
@@ -607,31 +601,28 @@ fn compute_git_segment(
         match comp {
             "branch" => {
                 let icon = icons.git_branch.as_deref().unwrap_or("\u{2387} ");
-                parts.push(format!("{}{icon}{branch}{}", t.lgray, t.reset));
+                parts.push(format!("{}{icon}{branch}{RESET}", ansi(p.subtle)));
             }
             "staged" if staged > 0 && !compact => {
                 let icon = icons.git_staged.as_deref().unwrap_or("\u{2022}");
-                parts.push(format!("{}{icon}{staged}{}", t.green, t.reset));
+                parts.push(format!("{}{icon}{staged}{RESET}", ansi(p.success)));
             }
             "modified" if modified > 0 && !compact => {
-                parts.push(format!("{}+{modified}{}", t.orange, t.reset));
+                parts.push(format!("{}+{modified}{RESET}", ansi(p.warning)));
             }
             "repo" if !compact => {
                 if let Some((url, name)) = &repo_url_and_name {
                     parts.push(format!(
-                        "\x1b]8;;{url}\x07{}{name}{}\x1b]8;;\x07",
-                        t.cyan, t.reset
+                        "\x1b]8;;{url}\x07{}{name}{RESET}\x1b]8;;\x07",
+                        ansi(p.primary)
                     ));
                 } else if !dir_name.is_empty() {
-                    parts.push(format!("{}{dir_name}{}", t.cyan, t.reset));
+                    parts.push(format!("{}{dir_name}{RESET}", ansi(p.primary)));
                 }
             }
             "worktree" => {
                 if let Some(wt) = &worktree_name {
-                    parts.push(format!(
-                        "{}{}{wt}{}{}",
-                        t.italic, t.dim_pink, t.no_italic, t.reset
-                    ));
+                    parts.push(format!("{ITALIC}{}{wt}{NO_ITALIC}{RESET}", ansi(p.accent)));
                 }
             }
             _ => {}
@@ -652,7 +643,7 @@ pub fn render_insights(
     compact: bool,
     components: &[String],
 ) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let insights_path =
         dirs::home_dir()?.join(".local/share/jarvis/insights/pending-insights.json");
     let strategies_path =
@@ -687,7 +678,7 @@ pub fn render_insights(
         match comp {
             "strategies" if strategies_n > 0 => {
                 if compact {
-                    parts.push(format!("{}\u{1f52d}{strategies_n}{}", t.purple, t.reset));
+                    parts.push(format!("{}\u{1f52d}{strategies_n}{RESET}", ansi(p.accent)));
                 } else {
                     let label = if strategies_n == 1 {
                         "strategy"
@@ -695,14 +686,14 @@ pub fn render_insights(
                         "strategies"
                     };
                     parts.push(format!(
-                        "{}\u{1f52d} {strategies_n} {label}{}",
-                        t.purple, t.reset
+                        "{}\u{1f52d} {strategies_n} {label}{RESET}",
+                        ansi(p.accent)
                     ));
                 }
             }
             "priorities" if priorities_n > 0 => {
                 if compact {
-                    parts.push(format!("{}\u{1f3af}{priorities_n}{}", t.red, t.reset));
+                    parts.push(format!("{}\u{1f3af}{priorities_n}{RESET}", ansi(p.danger)));
                 } else {
                     let label = if priorities_n == 1 {
                         "priority"
@@ -710,14 +701,14 @@ pub fn render_insights(
                         "priorities"
                     };
                     parts.push(format!(
-                        "{}\u{1f3af} {priorities_n} {label}{}",
-                        t.red, t.reset
+                        "{}\u{1f3af} {priorities_n} {label}{RESET}",
+                        ansi(p.danger)
                     ));
                 }
             }
             "insights" if insights_n > 0 => {
                 if compact {
-                    parts.push(format!("{}\u{1f4a1}{insights_n}{}", t.orange, t.reset));
+                    parts.push(format!("{}\u{1f4a1}{insights_n}{RESET}", ansi(p.warning)));
                 } else {
                     let label = if insights_n == 1 {
                         "insight"
@@ -725,26 +716,29 @@ pub fn render_insights(
                         "insights"
                     };
                     parts.push(format!(
-                        "{}\u{1f4a1} {insights_n} {label}{}",
-                        t.orange, t.reset
+                        "{}\u{1f4a1} {insights_n} {label}{RESET}",
+                        ansi(p.warning)
                     ));
                 }
             }
             "notes" if notes_n > 0 => {
                 if compact {
-                    parts.push(format!("{}\u{1f4cb}{notes_n}{}", t.green, t.reset));
+                    parts.push(format!("{}\u{1f4cb}{notes_n}{RESET}", ansi(p.success)));
                 } else {
                     let label = if notes_n == 1 { "note" } else { "notes" };
-                    parts.push(format!("{}\u{1f4cb} {notes_n} {label}{}", t.green, t.reset));
+                    parts.push(format!(
+                        "{}\u{1f4cb} {notes_n} {label}{RESET}",
+                        ansi(p.success)
+                    ));
                 }
             }
             "pending" if pending_n > 0 => {
                 if compact {
-                    parts.push(format!("{}\u{23f3}{pending_n}{}", t.yellow, t.reset));
+                    parts.push(format!("{}\u{23f3}{pending_n}{RESET}", ansi(p.warning)));
                 } else {
                     parts.push(format!(
-                        "{}\u{23f3} {pending_n} pending{}",
-                        t.yellow, t.reset
+                        "{}\u{23f3} {pending_n} pending{RESET}",
+                        ansi(p.warning)
                     ));
                 }
             }
@@ -768,20 +762,20 @@ pub fn render_insights(
 // --- Vim widget ---
 
 pub fn render_vim(ctx: &WidgetContext, _compact: bool, _components: &[String]) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let mode = ctx
         .data
         .vim
         .as_ref()
         .map(|v| v.mode.as_str())
         .filter(|m| !m.is_empty())?;
-    Some(format!("{}{mode}{}", t.purple, t.reset))
+    Some(format!("{}{mode}{RESET}", ansi(p.accent)))
 }
 
 // --- Agent widget ---
 
 pub fn render_agent(ctx: &WidgetContext, compact: bool, _components: &[String]) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let name = ctx
         .data
         .agent
@@ -789,10 +783,10 @@ pub fn render_agent(ctx: &WidgetContext, compact: bool, _components: &[String]) 
         .map(|a| a.name.as_str())
         .filter(|n| !n.is_empty())?;
     if compact {
-        Some(format!("{}{name}{}", t.orange, t.reset))
+        Some(format!("{}{name}{RESET}", ansi(p.warning)))
     } else {
         let icon = ctx.icons.agent.as_deref().unwrap_or("\u{276f} ");
-        Some(format!("{}{icon}{name}{}", t.orange, t.reset))
+        Some(format!("{}{icon}{name}{RESET}", ansi(p.warning)))
     }
 }
 
@@ -802,7 +796,7 @@ const FIVE_HOURS: f64 = 5.0 * 3600.0;
 const SEVEN_DAYS: f64 = 7.0 * 24.0 * 3600.0;
 
 pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let rate_limits = ctx.data.rate_limits.as_ref()?;
 
     let bar_width = responsive_bar_width(ctx.terminal_width, 12, 4);
@@ -819,7 +813,7 @@ pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) 
                         FIVE_HOURS,
                         "5h",
                         false,
-                        t,
+                        p,
                         &ctx.bar_style,
                         &ctx.icons,
                     ) {
@@ -835,7 +829,7 @@ pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) 
                         SEVEN_DAYS,
                         "7d",
                         true,
-                        t,
+                        p,
                         &ctx.bar_style,
                         &ctx.icons,
                     ) {
@@ -850,7 +844,7 @@ pub fn render_quota(ctx: &WidgetContext, _compact: bool, components: &[String]) 
     if segments.is_empty() {
         None
     } else {
-        Some(segments.join(&format!(" {}|{} ", t.dim, t.reset)))
+        Some(segments.join(&format!(" {}|{RESET} ", ansi(p.muted))))
     }
 }
 
@@ -861,7 +855,7 @@ fn render_quota_window(
     window_secs: f64,
     label: &str,
     show_pace: bool,
-    theme: &Theme,
+    palette: &ThemePalette,
     bar_style: &BarStyle,
     icons: &IconsConfig,
 ) -> Option<String> {
@@ -880,15 +874,15 @@ fn render_quota_window(
         None
     };
 
-    let col = quota_color(used, remaining_secs, window_secs, theme);
+    let col = quota_color(used, remaining_secs, window_secs, palette);
     let (bar, _) = usage_bar(
-        remaining, bar_width, &col, pace_pct, theme, bar_style, icons,
+        remaining, bar_width, &col, pace_pct, palette, bar_style, icons,
     );
-    let pct_str = seg_pct(remaining, &col, theme);
+    let pct_str = seg_pct(remaining, &col, palette);
 
     let pace_part = if show_pace {
         pace_balance_secs(used, remaining_secs, window_secs)
-            .map(|bal| format!(" {}", fmt_pace(bal, window_secs as u64, theme)))
+            .map(|bal| format!(" {}", fmt_pace(bal, window_secs as u64, palette)))
             .unwrap_or_default()
     } else {
         String::new()
@@ -897,12 +891,12 @@ fn render_quota_window(
     let reset_part = if reset_str.is_empty() {
         String::new()
     } else {
-        format!(" {}{reset_str}{}", theme.dim, theme.reset)
+        format!(" {}{reset_str}{RESET}", ansi(palette.muted))
     };
 
     Some(format!(
-        "{}{label}:{} {bar} {pct_str}{pace_part}{reset_part}",
-        theme.dim, theme.reset
+        "{}{label}:{RESET} {bar} {pct_str}{pace_part}{reset_part}",
+        ansi(palette.muted)
     ))
 }
 
@@ -913,7 +907,7 @@ pub fn render_session(
     _compact: bool,
     _components: &[String],
 ) -> Option<String> {
-    let t = &ctx.theme;
+    let p = &ctx.palette;
     let sid = ctx.data.session_id.as_deref().filter(|s| !s.is_empty())?;
 
     // Load or refresh sid list (TTL 30s)
@@ -930,7 +924,7 @@ pub fn render_session(
     };
 
     let prefix = shortest_unique_prefix(sid, &all_sids);
-    Some(format!("{}{prefix}{}", t.dim, t.reset))
+    Some(format!("{}{prefix}{RESET}", ansi(p.muted)))
 }
 
 fn collect_session_ids() -> Vec<String> {
@@ -994,26 +988,27 @@ fn dispatch_widget(
     // Merge per-widget semantic color/icon slots onto a cloned context. Zero-cost on the common path.
     let merged;
     let effective_ctx: &WidgetContext = if needs_merge {
-        let mut effective_theme_config = ctx.palette.to_theme_config();
+        let mut effective_palette = ctx.palette.clone();
 
         // Apply palette default roles for all color slots
         if let Some(wref) = wref {
             for slot in wref.color_slots {
-                if let Some(role) = slot.default_role {
-                    let idx = ctx.palette.resolve(role);
-                    effective_theme_config.set_field(slot.theme_field, Some(idx));
-                }
+                let idx = ctx.palette.resolve(slot.palette_role);
+                effective_palette.set_role(slot.palette_role, idx);
             }
         }
 
         // Explicit per-widget color overrides take precedence over palette defaults
         if let Some(c) = cfg {
-            if let Some(ref colors) = c.colors {
+            if let Some(ref theme_map) = c.theme {
                 if let Some(wref) = wref {
                     for slot in wref.color_slots {
-                        if let Some(color_val) = colors.get(slot.key) {
-                            let idx = resolve_color(color_val, &ctx.palette);
-                            effective_theme_config.set_field(slot.theme_field, Some(idx));
+                        if let Some(tv) = theme_map.get(slot.key) {
+                            let idx = match tv {
+                                crate::types::ThemeValue::Custom(n) => *n,
+                                crate::types::ThemeValue::Role(r) => ctx.palette.resolve(*r),
+                            };
+                            effective_palette.set_role(slot.palette_role, idx);
                         }
                     }
                 }
@@ -1047,11 +1042,10 @@ fn dispatch_widget(
             input_tokens: ctx.input_tokens,
             compact_size: ctx.compact_size,
             terminal_width: ctx.terminal_width,
-            theme: effective_theme_config.to_theme(),
             icons: effective_icons,
             bar_style: effective_bar_style,
             use_unicode_text: ctx.use_unicode_text,
-            palette: ctx.palette.clone(),
+            palette: effective_palette,
         };
         &merged
     } else {
@@ -1071,7 +1065,7 @@ fn dispatch_widget(
                 .and_then(|w| w.current_dir.as_deref()),
             compact,
             components,
-            &effective_ctx.theme,
+            &effective_ctx.palette,
             &effective_ctx.icons,
         ),
         "insights" => render_insights(effective_ctx, compact, components),
@@ -1081,24 +1075,23 @@ fn dispatch_widget(
         "session" => render_session(effective_ctx, compact, components),
         other => {
             // Build palette-aware theme for this plugin, then apply per-widget overrides.
-            let plugin_theme = {
-                let mut etc = ctx.palette.to_theme_config();
-                let wmeta = crate::plugin::widget_meta(other);
-                if let (Some(wmeta), Some(c)) = (&wmeta, cfg) {
-                    if let Some(ref colors) = c.colors {
-                        for slot in &wmeta.color_slots {
-                            if let Some(cv) = colors.get(&slot.key) {
-                                etc.set_field(
-                                    &slot.theme_field,
-                                    Some(resolve_color(cv, &ctx.palette)),
-                                );
+            let wmeta = crate::plugin::widget_meta(other);
+            let mut plugin_palette = ctx.palette.clone();
+            if let (Some(ref wmeta), Some(c)) = (&wmeta, cfg) {
+                if let Some(ref theme_map) = c.theme {
+                    for slot in &wmeta.theme_slots {
+                        if let Some(tv) = theme_map.get(&slot.key) {
+                            let idx = match tv {
+                                crate::types::ThemeValue::Custom(n) => *n,
+                                crate::types::ThemeValue::Role(r) => ctx.palette.resolve(*r),
+                            };
+                            if let Some(role) = slot.palette_role {
+                                plugin_palette.set_role(role, idx);
                             }
                         }
                     }
                 }
-                (wmeta, etc.to_theme())
-            };
-            let (wmeta, plugin_theme) = plugin_theme;
+            }
             let plugin_icons: serde_json::Value = {
                 let user_icons = cfg.and_then(|c| c.icons.as_ref());
                 let mut map = serde_json::Map::new();
@@ -1119,14 +1112,14 @@ fn dispatch_widget(
                     "compact": compact,
                     "components": components,
                     "palette": {
-                        "primary": plugin_theme.cyan,
-                        "accent": plugin_theme.purple,
-                        "success": plugin_theme.green,
-                        "warning": plugin_theme.orange,
-                        "danger": plugin_theme.red,
-                        "muted": plugin_theme.dim,
-                        "subtle": plugin_theme.lgray,
-                        "reset": plugin_theme.reset,
+                        "primary": ansi(plugin_palette.primary),
+                        "accent": ansi(plugin_palette.accent),
+                        "success": ansi(plugin_palette.success),
+                        "warning": ansi(plugin_palette.warning),
+                        "danger": ansi(plugin_palette.danger),
+                        "muted": ansi(plugin_palette.muted),
+                        "subtle": ansi(plugin_palette.subtle),
+                        "reset": RESET,
                     },
                     "icons": plugin_icons,
                     "bar_style": effective_ctx.bar_style.to_string(),
@@ -1290,7 +1283,7 @@ mod tests {
             Some("/tmp"),
             false,
             &[],
-            &Theme::default(),
+            &ThemePalette::default(),
             &IconsConfig::default(),
         );
         assert!(result.is_none());

@@ -1,4 +1,7 @@
-use crate::theme::{BarStyle, IconsConfig, Theme};
+use crate::theme::{
+    ansi, BarStyle, IconsConfig, ThemePalette, DIM_DANGER, DIM_PRIMARY, DIM_SUCCESS, DIM_WARNING,
+    ITALIC, RESET,
+};
 use regex::Regex;
 use std::sync::LazyLock;
 
@@ -11,25 +14,25 @@ pub fn visible_len(s: &str) -> usize {
 
 #[cfg(test)]
 pub fn dot_bar(pct: u32, width: usize) -> (String, String) {
-    let theme = Theme::default();
+    let p = ThemePalette::default();
     let pct = pct.min(100);
     let filled = ((pct as usize * width + 50) / 100).min(width);
     let empty = width - filled;
     let col = if pct >= 80 {
-        &theme.red
+        ansi(p.danger)
     } else if pct >= 50 {
-        &theme.orange
+        ansi(p.warning)
     } else {
-        &theme.green
+        ansi(p.success)
     };
+    let muted = ansi(p.muted);
     let bar = format!(
-        "{col}{filled}{dim}{empty}{reset}",
+        "{col}{filled}{muted}{empty}{reset}",
         filled = "●".repeat(filled),
-        dim = theme.dim,
         empty = "○".repeat(empty),
-        reset = theme.reset,
+        reset = RESET,
     );
-    (bar, col.to_string())
+    (bar, col)
 }
 
 pub fn fmt_tokens(n: u64) -> String {
@@ -94,24 +97,30 @@ pub fn subscript(s: &str) -> String {
 
 const SEG_DIGITS: &[char] = &['🯰', '🯱', '🯲', '🯳', '🯴', '🯵', '🯶', '🯷', '🯸', '🯹'];
 
-pub fn seg_pct(n: u32, col: &str, theme: &Theme) -> String {
+pub fn seg_pct(n: u32, col: &str, palette: &ThemePalette) -> String {
+    let _ = palette;
     let v = n.min(999);
     let digits: String = v
         .to_string()
         .chars()
         .map(|c| SEG_DIGITS[c.to_digit(10).unwrap() as usize])
         .collect();
-    format!("{col}{digits}٪{}", theme.reset)
+    format!("{col}{digits}٪{}", RESET)
 }
 
 /// Gradient context bar. Returns (bar_string, label_color).
 pub fn context_bar(
     pct: u32,
     width: usize,
-    theme: &Theme,
+    palette: &ThemePalette,
     icons: &IconsConfig,
     bar_style: &BarStyle,
 ) -> (String, String) {
+    let success = ansi(palette.success);
+    let warning = ansi(palette.warning);
+    let danger = ansi(palette.danger);
+    let muted = ansi(palette.muted);
+
     let pct = pct.min(100);
     let (default_fill, default_empty, default_half) = match bar_style {
         BarStyle::Block => ('■', '□', '◧'),
@@ -121,7 +130,6 @@ pub fn context_bar(
     let fill_ch = icons.bar_fill.unwrap_or(default_fill);
     let empty_ch = icons.bar_empty.unwrap_or(default_empty);
     let half_ch = icons.bar_half.unwrap_or(default_half);
-    // Scale default thresholds (4 and 9 out of 12) proportionally.
     let threshold0 = (4 * width + 6) / 12;
     let threshold1 = (9 * width + 6) / 12;
 
@@ -132,12 +140,12 @@ pub fn context_bar(
     let mut bar = String::with_capacity(width * 16);
 
     for pos in 0..width {
-        let (bright, dim) = if pos < threshold0 {
-            (&theme.green, &theme.dim_green)
+        let (bright, dim_col) = if pos < threshold0 {
+            (&success, DIM_SUCCESS)
         } else if pos < threshold1 {
-            (&theme.orange, &theme.dim_orange)
+            (&warning, DIM_WARNING)
         } else {
-            (&theme.red, &theme.dim_red)
+            (&danger, DIM_DANGER)
         };
         let half = if pos < threshold0 {
             threshold0 / 2
@@ -146,7 +154,11 @@ pub fn context_bar(
         } else {
             threshold1 + (width - threshold1) / 2
         };
-        let col = if pos >= half { bright } else { dim };
+        let col = if pos >= half {
+            bright.as_str()
+        } else {
+            dim_col
+        };
 
         if pos < fill_int {
             bar.push_str(col);
@@ -156,18 +168,18 @@ pub fn context_bar(
             bar.push_str(col);
             bar.push(ch);
         } else {
-            bar.push_str(&theme.dim);
+            bar.push_str(&muted);
             bar.push(empty_ch);
         }
     }
-    bar.push_str(&theme.reset);
+    bar.push_str(RESET);
 
     let label_col = if fill_int >= threshold1 {
-        theme.red.clone()
+        ansi(palette.danger)
     } else if fill_int >= threshold0 {
-        theme.orange.clone()
+        ansi(palette.warning)
     } else {
-        theme.green.clone()
+        ansi(palette.success)
     };
 
     (bar, label_col)
@@ -179,10 +191,15 @@ pub fn usage_bar(
     width: usize,
     col: &str,
     pace_pct: Option<f64>,
-    theme: &Theme,
+    palette: &ThemePalette,
     bar_style: &BarStyle,
     icons: &IconsConfig,
 ) -> (String, String) {
+    let danger = ansi(palette.danger);
+    let warning = ansi(palette.warning);
+    let primary = ansi(palette.primary);
+    let muted = ansi(palette.muted);
+
     let pct = pct.min(100);
     let fill_f = pct as f64 / 100.0 * width as f64;
     let fill_int = fill_f.floor() as usize;
@@ -190,7 +207,6 @@ pub fn usage_bar(
 
     let pace_seg = pace_pct.map(|p| (p / 100.0 * width as f64).floor() as usize);
 
-    // Pace marker color
     let pace_col: &str = if let Some(p) = pace_pct {
         let ratio = if p > 0.0 {
             pct as f64 / p
@@ -198,14 +214,14 @@ pub fn usage_bar(
             f64::INFINITY
         };
         if ratio < 0.8 {
-            &theme.red
+            &danger
         } else if ratio < 1.0 {
-            &theme.orange
+            &warning
         } else {
-            &theme.dim
+            &muted
         }
     } else {
-        &theme.dim
+        &muted
     };
 
     let empty_ch = match bar_style {
@@ -221,7 +237,7 @@ pub fn usage_bar(
         let is_pre_pace = pace_seg
             .map(|ps| pos < ps && fill_int > ps)
             .unwrap_or(false);
-        let effective_col = if is_pre_pace { &theme.dim } else { col };
+        let effective_col = if is_pre_pace { muted.as_str() } else { col };
 
         if pos < fill_int {
             let ch = quota_fill_char(bar_style, icons, pos as f64 / fill_f);
@@ -237,19 +253,19 @@ pub fn usage_bar(
                 bar.push_str(pace_col);
                 bar.push(pace_ch);
             } else {
-                bar.push_str(&theme.dim);
+                bar.push_str(&muted);
                 bar.push(empty_ch);
             }
         }
     }
-    bar.push_str(&theme.reset);
+    bar.push_str(RESET);
 
     let label_col = if pct >= 80 {
-        theme.red.clone()
+        ansi(palette.danger)
     } else if pct >= 50 {
-        theme.orange.clone()
+        ansi(palette.warning)
     } else {
-        theme.cyan.clone()
+        primary
     };
 
     (bar, label_col)
@@ -303,12 +319,9 @@ pub fn fmt_reset(resets_at: &serde_json::Value) -> (String, f64) {
     let target = match resets_at {
         serde_json::Value::Number(n) => n.as_f64().unwrap_or(0.0),
         serde_json::Value::String(s) => {
-            // Parse ISO 8601 via chrono-style manual parse or simple epoch extraction.
-            // We do a minimal parse: try to parse as f64 first, then as RFC3339.
             if let Ok(v) = s.parse::<f64>() {
                 v
             } else {
-                // Minimal ISO 8601 parser: YYYY-MM-DDTHH:MM:SSZ
                 parse_iso8601(s).unwrap_or(0.0)
             }
         }
@@ -321,7 +334,6 @@ pub fn fmt_reset(resets_at: &serde_json::Value) -> (String, f64) {
 }
 
 fn parse_iso8601(s: &str) -> Option<f64> {
-    // Minimal parser for YYYY-MM-DDTHH:MM:SS[.fff][Z|+HH:MM]
     let s = s.trim();
     if s.len() < 19 {
         return None;
@@ -333,11 +345,9 @@ fn parse_iso8601(s: &str) -> Option<f64> {
     let min: i64 = s[14..16].parse().ok()?;
     let sec: i64 = s[17..19].parse().ok()?;
 
-    // Days since epoch via rough formula (good enough for near-future timestamps)
     let days = days_since_epoch(year, month, day)?;
     let epoch_secs = days * 86400 + hour * 3600 + min * 60 + sec;
 
-    // Timezone offset
     let offset_secs = if s.len() > 19 {
         let tz = &s[19..];
         if tz.starts_with('Z') || tz.starts_with('z') {
@@ -360,14 +370,13 @@ fn parse_iso8601(s: &str) -> Option<f64> {
 }
 
 fn days_since_epoch(year: i64, month: i64, day: i64) -> Option<i64> {
-    // Rata Die algorithm
     let m = if month <= 2 { month + 9 } else { month - 3 };
     let y = if month <= 2 { year - 1 } else { year };
     let era = if y >= 0 { y } else { y - 399 } / 400;
     let yoe = y - era * 400;
     let doy = (153 * m + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146097 + doe - 719468; // offset to Unix epoch
+    let days = era * 146097 + doe - 719468;
     Some(days)
 }
 
@@ -383,19 +392,18 @@ pub fn pace_balance_secs(used: f64, remaining_secs: f64, window_secs: f64) -> Op
 }
 
 /// Format pace as italic colored segmented hours.
-pub fn fmt_pace(secs: i64, window_secs: u64, theme: &Theme) -> String {
+pub fn fmt_pace(secs: i64, window_secs: u64, palette: &ThemePalette) -> String {
     let col: &str = if secs >= 0 {
-        &theme.dim_cyan
+        DIM_PRIMARY
     } else {
         let deficit_pct = secs.unsigned_abs() as f64 / window_secs as f64 * 100.0;
         if deficit_pct >= 15.0 {
-            &theme.dim_red
-        } else if deficit_pct >= 8.0 {
-            &theme.dim_orange
+            DIM_DANGER
         } else {
-            &theme.dim_yellow
+            DIM_WARNING
         }
     };
+    let _ = palette;
     let sign = if secs >= 0 { "+" } else { "-" };
     let hours = secs.unsigned_abs() / 3600;
     let seg_hours = hours
@@ -403,7 +411,7 @@ pub fn fmt_pace(secs: i64, window_secs: u64, theme: &Theme) -> String {
         .chars()
         .map(|c| SEG_DIGITS[c.to_digit(10).unwrap() as usize])
         .collect::<String>();
-    format!("{}{col}{sign}{seg_hours}h{}", theme.italic, theme.reset)
+    format!("{}{col}{sign}{seg_hours}h{}", ITALIC, RESET)
 }
 
 /// Determine quota color based on utilization and remaining time.
@@ -411,21 +419,20 @@ pub fn quota_color(
     utilization: f64,
     remaining_secs: f64,
     window_secs: f64,
-    theme: &Theme,
+    palette: &ThemePalette,
 ) -> String {
     if remaining_secs <= 0.0 || window_secs <= 0.0 {
-        // No time context -- simple threshold
         if utilization >= 80.0 {
-            theme.red.clone()
+            ansi(palette.danger)
         } else if utilization >= 50.0 {
-            theme.orange.clone()
+            ansi(palette.warning)
         } else {
-            theme.cyan.clone()
+            ansi(palette.primary)
         }
     } else {
         let elapsed = window_secs - remaining_secs;
         if elapsed <= 0.0 {
-            return theme.cyan.clone();
+            return ansi(palette.primary);
         }
         let even_pace_used = elapsed / window_secs * 100.0;
         let per_unit_remaining = if even_pace_used > 0.0 {
@@ -434,11 +441,11 @@ pub fn quota_color(
             1.0
         };
         if per_unit_remaining >= 0.70 {
-            theme.cyan.clone()
+            ansi(palette.primary)
         } else if per_unit_remaining >= 0.35 {
-            theme.orange.clone()
+            ansi(palette.warning)
         } else {
-            theme.red.clone()
+            ansi(palette.danger)
         }
     }
 }
@@ -451,36 +458,36 @@ mod tests {
 
     #[test]
     fn dot_bar_zero() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let (bar, col) = dot_bar(0, 10);
-        assert_eq!(col, t.green);
+        assert_eq!(col, ansi(p.success));
         assert!(bar.contains(&"○".repeat(10)));
         assert!(!bar.contains('●'));
     }
 
     #[test]
     fn dot_bar_50() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let (bar, col) = dot_bar(50, 10);
-        assert_eq!(col, t.orange);
+        assert_eq!(col, ansi(p.warning));
         assert!(bar.contains(&"●".repeat(5)));
         assert!(bar.contains(&"○".repeat(5)));
     }
 
     #[test]
     fn dot_bar_80() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let (bar, col) = dot_bar(80, 10);
-        assert_eq!(col, t.red);
+        assert_eq!(col, ansi(p.danger));
         assert!(bar.contains(&"●".repeat(8)));
         assert!(bar.contains(&"○".repeat(2)));
     }
 
     #[test]
     fn dot_bar_100() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let (bar, col) = dot_bar(100, 10);
-        assert_eq!(col, t.red);
+        assert_eq!(col, ansi(p.danger));
         assert!(bar.contains(&"●".repeat(10)));
         assert!(!bar.contains('○'));
     }
@@ -524,18 +531,20 @@ mod tests {
 
     #[test]
     fn test_seg_pct_zero() {
-        let t = Theme::default();
-        let s = seg_pct(0, &t.green, &t);
+        let p = ThemePalette::default();
+        let col = ansi(p.success);
+        let s = seg_pct(0, &col, &p);
         assert!(s.contains('🯰'));
         assert!(s.contains('٪'));
-        assert!(s.contains(&t.green));
-        assert!(s.contains(&t.reset));
+        assert!(s.contains(&col));
+        assert!(s.contains(RESET));
     }
 
     #[test]
     fn test_seg_pct_clamp() {
-        let t = Theme::default();
-        let s = seg_pct(1000, &t.red, &t);
+        let p = ThemePalette::default();
+        let col = ansi(p.danger);
+        let s = seg_pct(1000, &col, &p);
         // clamped to 999
         assert!(s.contains('🯹'));
     }
@@ -547,8 +556,8 @@ mod tests {
 
     #[test]
     fn test_visible_len_ansi() {
-        let t = Theme::default();
-        let s = format!("{}hello{}", t.green, t.reset);
+        let p = ThemePalette::default();
+        let s = format!("{}hello{}", ansi(p.success), RESET);
         assert_eq!(visible_len(&s), 5);
     }
 
@@ -561,61 +570,61 @@ mod tests {
 
     #[test]
     fn context_bar_zero() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, col) = context_bar(0, 12, &t, &i, &BarStyle::default());
-        assert_eq!(col, t.green);
+        let (bar, col) = context_bar(0, 12, &p, &i, &BarStyle::default());
+        assert_eq!(col, ansi(p.success));
         assert!(bar.contains('□'));
         assert!(!bar.contains('■'));
     }
 
     #[test]
     fn context_bar_full() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, col) = context_bar(100, 12, &t, &i, &BarStyle::default());
-        assert_eq!(col, t.red);
+        let (bar, col) = context_bar(100, 12, &p, &i, &BarStyle::default());
+        assert_eq!(col, ansi(p.danger));
         assert!(bar.contains('■'));
         assert!(!bar.contains('□'));
     }
 
     #[test]
     fn context_bar_small_width_label() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
         // width=4, pct=80 -> fill_int=3, threshold1=(9*4+6)/12=3 -> RED
-        let (_bar, col) = context_bar(80, 4, &t, &i, &BarStyle::default());
-        assert_eq!(col, t.red);
+        let (_bar, col) = context_bar(80, 4, &p, &i, &BarStyle::default());
+        assert_eq!(col, ansi(p.danger));
     }
 
     #[test]
     fn context_bar_mid_width_label() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
         // width=8, pct=50 -> fill_int=4, threshold0=(4*8+6)/12=3 -> ORANGE
-        let (_bar, col) = context_bar(50, 8, &t, &i, &BarStyle::default());
-        assert_eq!(col, t.orange);
+        let (_bar, col) = context_bar(50, 8, &p, &i, &BarStyle::default());
+        assert_eq!(col, ansi(p.warning));
     }
 
     #[test]
     fn context_bar_partial() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, _col) = context_bar(50, 12, &t, &i, &BarStyle::default());
+        let (bar, _col) = context_bar(50, 12, &p, &i, &BarStyle::default());
         assert!(bar.contains('■') || bar.contains('◧'));
         assert!(bar.contains('□'));
     }
 
     #[test]
     fn context_bar_custom_fill_chars() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let icons = IconsConfig {
             bar_fill: Some('█'),
             bar_empty: Some('░'),
             bar_half: Some('▒'),
             ..IconsConfig::default()
         };
-        let (bar, _col) = context_bar(50, 12, &t, &icons, &BarStyle::default());
+        let (bar, _col) = context_bar(50, 12, &p, &icons, &BarStyle::default());
         assert!(bar.contains('█') || bar.contains('▒'));
         assert!(bar.contains('░'));
         assert!(!bar.contains('■'));
@@ -624,9 +633,9 @@ mod tests {
 
     #[test]
     fn context_bar_dot_style() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, _col) = context_bar(50, 12, &t, &i, &BarStyle::Dot);
+        let (bar, _col) = context_bar(50, 12, &p, &i, &BarStyle::Dot);
         assert!(bar.contains('●') || bar.contains('◐'));
         assert!(bar.contains('○'));
         assert!(!bar.contains('■'));
@@ -635,9 +644,9 @@ mod tests {
 
     #[test]
     fn context_bar_ascii_style() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, _col) = context_bar(50, 12, &t, &i, &BarStyle::Ascii);
+        let (bar, _col) = context_bar(50, 12, &p, &i, &BarStyle::Ascii);
         assert!(bar.contains('#') || bar.contains('~'));
         assert!(bar.contains('-'));
         assert!(!bar.contains('■'));
@@ -646,36 +655,40 @@ mod tests {
 
     #[test]
     fn usage_bar_no_pace() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::default(), &i);
+        let col = ansi(p.primary);
+        let (bar, _col) = usage_bar(50, 10, &col, None, &p, &BarStyle::default(), &i);
         assert!(!bar.contains('◌'));
     }
 
     #[test]
     fn usage_bar_with_pace() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
+        let col = ansi(p.primary);
         // fill at 80%, pace at 50% -- ahead of pace, should show no pace marker in filled zone
-        let (bar, _col) = usage_bar(80, 10, &t.cyan, Some(50.0), &t, &BarStyle::default(), &i);
+        let (bar, _col) = usage_bar(80, 10, &col, Some(50.0), &p, &BarStyle::default(), &i);
         // pace marker should not appear (it's in filled zone)
         assert!(bar.contains('■') || bar.contains('▓') || bar.contains('░'));
     }
 
     #[test]
     fn usage_bar_pace_marker_visible() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
+        let col = ansi(p.primary);
         // fill at 20%, pace at 60% -- behind pace, marker should appear
-        let (bar, _col) = usage_bar(20, 10, &t.cyan, Some(60.0), &t, &BarStyle::default(), &i);
+        let (bar, _col) = usage_bar(20, 10, &col, Some(60.0), &p, &BarStyle::default(), &i);
         assert!(bar.contains('◌'));
     }
 
     #[test]
     fn usage_bar_ascii_style() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::Ascii, &i);
+        let col = ansi(p.primary);
+        let (bar, _col) = usage_bar(50, 10, &col, None, &p, &BarStyle::Ascii, &i);
         assert!(bar.contains('#'));
         assert!(bar.contains('-'));
         assert!(!bar.contains('●'));
@@ -684,25 +697,26 @@ mod tests {
 
     #[test]
     fn usage_bar_dot_style() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let i = IconsConfig::default();
-        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::Dot, &i);
+        let col = ansi(p.primary);
+        let (bar, _col) = usage_bar(50, 10, &col, None, &p, &BarStyle::Dot, &i);
         assert!(bar.contains('●'));
         assert!(bar.contains('○'));
-        // Dot style should NOT have density progression chars
         assert!(!bar.contains('◎'));
         assert!(!bar.contains('◉'));
     }
 
     #[test]
     fn usage_bar_custom_quota_fill() {
-        let t = Theme::default();
+        let p = ThemePalette::default();
         let icons = IconsConfig {
             quota_fill: Some('X'),
             quota_empty: Some('.'),
             ..IconsConfig::default()
         };
-        let (bar, _col) = usage_bar(50, 10, &t.cyan, None, &t, &BarStyle::Block, &icons);
+        let col = ansi(p.primary);
+        let (bar, _col) = usage_bar(50, 10, &col, None, &p, &BarStyle::Block, &icons);
         assert!(bar.contains('X'));
         assert!(bar.contains('.'));
         assert!(!bar.contains('●'));
@@ -723,9 +737,9 @@ mod tests {
 
     #[test]
     fn test_quota_color_no_time() {
-        let t = Theme::default();
-        assert_eq!(quota_color(85.0, 0.0, 0.0, &t), t.red);
-        assert_eq!(quota_color(60.0, 0.0, 0.0, &t), t.orange);
-        assert_eq!(quota_color(30.0, 0.0, 0.0, &t), t.cyan);
+        let p = ThemePalette::default();
+        assert_eq!(quota_color(85.0, 0.0, 0.0, &p), ansi(p.danger));
+        assert_eq!(quota_color(60.0, 0.0, 0.0, &p), ansi(p.warning));
+        assert_eq!(quota_color(30.0, 0.0, 0.0, &p), ansi(p.primary));
     }
 }

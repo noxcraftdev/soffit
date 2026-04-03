@@ -1,12 +1,11 @@
 use crate::theme::PaletteRole;
 
 #[allow(dead_code)]
-pub struct ColorSlot {
+pub struct ThemeSlot {
     pub key: &'static str,
     pub label: &'static str,
-    pub theme_field: &'static str,
+    pub palette_role: PaletteRole,
     pub default_idx: u8,
-    pub default_role: Option<PaletteRole>,
 }
 
 #[allow(dead_code)]
@@ -24,7 +23,7 @@ pub struct WidgetRef {
     pub default_components: &'static [&'static str],
     pub has_compact: bool,
     #[allow(dead_code)]
-    pub color_slots: &'static [ColorSlot],
+    pub color_slots: &'static [ThemeSlot],
     #[allow(dead_code)]
     pub icon_slots: &'static [IconSlot],
 }
@@ -36,26 +35,23 @@ pub const WIDGETS: &[WidgetRef] = &[
         default_components: &["update", "version", "model"],
         has_compact: true,
         color_slots: &[
-            ColorSlot {
+            ThemeSlot {
                 key: "update_indicator",
                 label: "Update Arrow",
-                theme_field: "orange",
+                palette_role: PaletteRole::Warning,
                 default_idx: 215,
-                default_role: Some(PaletteRole::Warning),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "version_text",
                 label: "Version",
-                theme_field: "dim",
+                palette_role: PaletteRole::Muted,
                 default_idx: 242,
-                default_role: Some(PaletteRole::Muted),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "model_name",
                 label: "Model",
-                theme_field: "purple",
+                palette_role: PaletteRole::Accent,
                 default_idx: 183,
-                default_role: Some(PaletteRole::Accent),
             },
         ],
         icon_slots: &[IconSlot {
@@ -72,33 +68,29 @@ pub const WIDGETS: &[WidgetRef] = &[
         default_components: &["bar", "pct", "tokens"],
         has_compact: true,
         color_slots: &[
-            ColorSlot {
+            ThemeSlot {
                 key: "low",
                 label: "Low Usage",
-                theme_field: "green",
+                palette_role: PaletteRole::Success,
                 default_idx: 114,
-                default_role: Some(PaletteRole::Success),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "mid",
                 label: "Mid Usage",
-                theme_field: "orange",
+                palette_role: PaletteRole::Warning,
                 default_idx: 215,
-                default_role: Some(PaletteRole::Warning),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "high",
                 label: "High Usage",
-                theme_field: "red",
+                palette_role: PaletteRole::Danger,
                 default_idx: 203,
-                default_role: Some(PaletteRole::Danger),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "empty",
                 label: "Empty Bar",
-                theme_field: "dim",
+                palette_role: PaletteRole::Muted,
                 default_idx: 242,
-                default_role: Some(PaletteRole::Muted),
             },
         ],
         icon_slots: &[],
@@ -108,12 +100,11 @@ pub const WIDGETS: &[WidgetRef] = &[
         description: "Session duration",
         default_components: &[],
         has_compact: false,
-        color_slots: &[ColorSlot {
+        color_slots: &[ThemeSlot {
             key: "time",
             label: "Duration",
-            theme_field: "lgray",
+            palette_role: PaletteRole::Subtle,
             default_idx: 250,
-            default_role: Some(PaletteRole::Subtle),
         }],
         icon_slots: &[IconSlot {
             key: "duration",
@@ -129,26 +120,23 @@ pub const WIDGETS: &[WidgetRef] = &[
         default_components: &["session", "today", "week"],
         has_compact: true,
         color_slots: &[
-            ColorSlot {
+            ThemeSlot {
                 key: "within_budget",
                 label: "Within Budget",
-                theme_field: "green",
+                palette_role: PaletteRole::Success,
                 default_idx: 114,
-                default_role: Some(PaletteRole::Success),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "approaching",
                 label: "Approaching",
-                theme_field: "orange",
+                palette_role: PaletteRole::Warning,
                 default_idx: 215,
-                default_role: Some(PaletteRole::Warning),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "over_budget",
                 label: "Over Budget",
-                theme_field: "red",
+                palette_role: PaletteRole::Danger,
                 default_idx: 203,
-                default_role: Some(PaletteRole::Danger),
             },
         ],
         icon_slots: &[IconSlot {
@@ -165,40 +153,35 @@ pub const WIDGETS: &[WidgetRef] = &[
         default_components: &["branch", "staged", "modified", "repo", "worktree"],
         has_compact: true,
         color_slots: &[
-            ColorSlot {
+            ThemeSlot {
                 key: "branch",
                 label: "Branch",
-                theme_field: "lgray",
+                palette_role: PaletteRole::Subtle,
                 default_idx: 250,
-                default_role: Some(PaletteRole::Subtle),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "staged",
                 label: "Staged",
-                theme_field: "green",
+                palette_role: PaletteRole::Success,
                 default_idx: 114,
-                default_role: Some(PaletteRole::Success),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "modified",
                 label: "Modified",
-                theme_field: "orange",
+                palette_role: PaletteRole::Warning,
                 default_idx: 215,
-                default_role: Some(PaletteRole::Warning),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "repo",
                 label: "Repository",
-                theme_field: "cyan",
+                palette_role: PaletteRole::Primary,
                 default_idx: 111,
-                default_role: Some(PaletteRole::Primary),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "worktree",
                 label: "Worktree",
-                theme_field: "dim_pink",
+                palette_role: PaletteRole::Accent,
                 default_idx: 175,
-                default_role: Some(PaletteRole::Accent),
             },
         ],
         icon_slots: &[
@@ -224,26 +207,23 @@ pub const WIDGETS: &[WidgetRef] = &[
         default_components: &["five_hour", "seven_day"],
         has_compact: true,
         color_slots: &[
-            ColorSlot {
+            ThemeSlot {
                 key: "healthy",
                 label: "Healthy",
-                theme_field: "cyan",
+                palette_role: PaletteRole::Primary,
                 default_idx: 111,
-                default_role: Some(PaletteRole::Primary),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "warning",
                 label: "Warning",
-                theme_field: "orange",
+                palette_role: PaletteRole::Warning,
                 default_idx: 215,
-                default_role: Some(PaletteRole::Warning),
             },
-            ColorSlot {
+            ThemeSlot {
                 key: "critical",
                 label: "Critical",
-                theme_field: "red",
+                palette_role: PaletteRole::Danger,
                 default_idx: 203,
-                default_role: Some(PaletteRole::Danger),
             },
         ],
         icon_slots: &[],
@@ -253,12 +233,11 @@ pub const WIDGETS: &[WidgetRef] = &[
         description: "Current vim mode",
         default_components: &[],
         has_compact: false,
-        color_slots: &[ColorSlot {
+        color_slots: &[ThemeSlot {
             key: "mode",
             label: "Vim Mode",
-            theme_field: "purple",
+            palette_role: PaletteRole::Accent,
             default_idx: 183,
-            default_role: Some(PaletteRole::Accent),
         }],
         icon_slots: &[],
     },
@@ -267,12 +246,11 @@ pub const WIDGETS: &[WidgetRef] = &[
         description: "Active agent name",
         default_components: &[],
         has_compact: false,
-        color_slots: &[ColorSlot {
+        color_slots: &[ThemeSlot {
             key: "name",
             label: "Agent Name",
-            theme_field: "orange",
+            palette_role: PaletteRole::Warning,
             default_idx: 215,
-            default_role: Some(PaletteRole::Warning),
         }],
         icon_slots: &[IconSlot {
             key: "agent",
@@ -287,12 +265,11 @@ pub const WIDGETS: &[WidgetRef] = &[
         description: "Shortest unique session ID prefix",
         default_components: &[],
         has_compact: false,
-        color_slots: &[ColorSlot {
+        color_slots: &[ThemeSlot {
             key: "id",
             label: "Session ID",
-            theme_field: "dim",
+            palette_role: PaletteRole::Muted,
             default_idx: 242,
-            default_role: Some(PaletteRole::Muted),
         }],
         icon_slots: &[],
     },
