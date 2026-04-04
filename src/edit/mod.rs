@@ -23,7 +23,8 @@ body.dnd-active select, body.dnd-active input, body.dnd-active textarea, body.dn
 .dnd-target { border-left: 3px solid #89b4fa !important; }
 .dnd-row-target { border-color: #89b4fa !important; background: #1e1e3e !important; }
 .dnd-drop-zone { width:64px; height:28px; border-radius:4px; flex-shrink:0; }
-body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px dashed rgba(137,180,250,0.3); }"#;
+body.dnd-active .dnd-drop-zone { background: rgba(137,180,250,0.1); border: 1px dashed rgba(137,180,250,0.3); }
+.font-item:hover { background:#313244; }"#;
 
 const CUSTOM_HEAD_JS: &str = r#"(function() {
   // ---- Line chip drag/drop ----
@@ -140,16 +141,18 @@ pub fn run() -> Result<()> {
         window = window.with_window_icon(Some(icon));
     }
 
+    let mut config = Config::default()
+        .with_custom_head(format!(
+            "<style>{}</style><script>{}</script>",
+            CUSTOM_HEAD_CSS, CUSTOM_HEAD_JS
+        ))
+        .with_window(window);
+    if !cfg!(target_os = "macos") {
+        config = config.with_menu(None);
+    }
+
     dioxus::LaunchBuilder::new()
-        .with_cfg(
-            Config::default()
-                .with_custom_head(format!(
-                    "<style>{}</style><script>{}</script>",
-                    CUSTOM_HEAD_CSS, CUSTOM_HEAD_JS
-                ))
-                .with_menu(None)
-                .with_window(window),
-        )
+        .with_cfg(config)
         .launch(App);
     Ok(())
 }
@@ -676,10 +679,7 @@ pub fn App() -> Element {
 
     let tab = *active_tab.read();
     let cfg_snap = config.read().clone();
-    let preview_font_family = match &cfg_snap.editor_font {
-        Some(f) => format!("'{f}',monospace"),
-        None => "'JetBrains Mono',Menlo,Consolas,monospace".to_string(),
-    };
+    let preview_font_family = build_preview_font_family(cfg_snap.editor_font.as_deref());
 
     // Poll JS for line-level drag/drop results
     use_coroutine::<(), _, _>(move |_rx| async move {
@@ -1094,8 +1094,6 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
     let bar_style = config.read().bar_style.clone();
     let use_unicode = config.read().use_unicode_text;
     let palette = config.read().palette.clone();
-    let editor_font = config.read().editor_font.clone();
-
     let btn = |active: bool| -> &'static str {
         if active {
             "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;"
@@ -1211,51 +1209,7 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
             // Section 5: Editor Font
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Editor Font" }
-                div { style: "display:flex; gap:6px; flex-wrap:wrap; align-items:center;",
-                    {
-                        let font_presets: &[(&str, Option<&str>)] = &[
-                            ("Default", None),
-                            ("JetBrainsMono NF", Some("JetBrainsMono Nerd Font")),
-                            ("Fira Code", Some("Fira Code")),
-                            ("Ubuntu Mono", Some("Ubuntu Mono")),
-                            ("DejaVu Sans Mono", Some("DejaVu Sans Mono")),
-                            ("Consolas", Some("Consolas")),
-                            ("Menlo", Some("Menlo")),
-                        ];
-                        let is_preset = font_presets.iter().any(|(_, v)| v.map(|s| s.to_string()).as_deref() == editor_font.as_deref());
-                        let custom_value = if is_preset { String::new() } else { editor_font.clone().unwrap_or_default() };
-                        rsx! {
-                            for &(label, preset_val) in font_presets {
-                                {
-                                    let is_active = editor_font.as_deref() == preset_val;
-                                    let preset_owned = preset_val.map(|s| s.to_string());
-                                    rsx! {
-                                        button {
-                                            key: "{label}",
-                                            style: btn(is_active),
-                                            onclick: move |_| {
-                                                config.write().editor_font = preset_owned.clone();
-                                                autosave(&config);
-                                            },
-                                            "{label}"
-                                        }
-                                    }
-                                }
-                            }
-                            input {
-                                r#type: "text",
-                                placeholder: "Font family name...",
-                                value: "{custom_value}",
-                                style: "background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 8px; font-size:12px; width:160px;",
-                                oninput: move |evt| {
-                                    let v = evt.value();
-                                    config.write().editor_font = if v.trim().is_empty() { None } else { Some(v) };
-                                    autosave(&config);
-                                }
-                            }
-                        }
-                    }
-                }
+                FontPicker { config }
             }
 
             // Section 6: Reset
@@ -1273,6 +1227,246 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                         autosave(&config);
                     },
                     "Reset"
+                }
+            }
+        }
+    }
+}
+
+// ---- font picker -----------------------------------------------------------
+
+/// Build a CSS font-family string for the preview bar.
+/// Includes the user's chosen font, then any installed symbol/nerd fonts as
+/// fallbacks so that special glyphs (powerline, segmented digits, etc.) render.
+fn build_preview_font_family(editor_font: Option<&str>) -> String {
+    use std::sync::OnceLock;
+    static FALLBACKS: OnceLock<String> = OnceLock::new();
+    let fallbacks = FALLBACKS.get_or_init(|| {
+        let all = list_system_fonts();
+        let keywords = ["nerd", "symbol", "iosevka", "noto sans symbols", "noto color emoji", "emoji"];
+        let mut picked: Vec<&str> = all
+            .iter()
+            .filter(|f| {
+                let lc = f.to_lowercase();
+                keywords.iter().any(|k| lc.contains(k))
+            })
+            .map(|s| s.as_str())
+            .collect();
+        picked.sort();
+        picked.dedup();
+        picked
+            .iter()
+            .map(|f| format!("'{f}'"))
+            .collect::<Vec<_>>()
+            .join(",")
+    });
+
+    let primary = match editor_font {
+        Some(f) => format!("'{f}'"),
+        None => "'JetBrains Mono','Menlo','Consolas'".to_string(),
+    };
+
+    if fallbacks.is_empty() {
+        format!("{primary},monospace")
+    } else {
+        format!("{primary},{fallbacks},monospace")
+    }
+}
+
+fn list_system_fonts() -> Vec<String> {
+    use std::collections::BTreeSet;
+
+    let mut dirs = Vec::new();
+    if cfg!(target_os = "macos") {
+        dirs.push(std::path::PathBuf::from("/System/Library/Fonts"));
+        dirs.push(std::path::PathBuf::from("/Library/Fonts"));
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(home.join("Library/Fonts"));
+        }
+    } else if cfg!(target_os = "linux") {
+        dirs.push(std::path::PathBuf::from("/usr/share/fonts"));
+        dirs.push(std::path::PathBuf::from("/usr/local/share/fonts"));
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(home.join(".local/share/fonts"));
+            dirs.push(home.join(".fonts"));
+        }
+    } else if cfg!(target_os = "windows") {
+        if let Some(windir) = std::env::var_os("WINDIR") {
+            dirs.push(std::path::PathBuf::from(windir).join("Fonts"));
+        }
+        if let Some(home) = dirs::home_dir() {
+            dirs.push(home.join("AppData/Local/Microsoft/Windows/Fonts"));
+        }
+    }
+
+    let mut families = BTreeSet::new();
+    for dir in dirs {
+        for entry in walkdir::WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if !matches!(ext.as_str(), "ttf" | "otf" | "ttc") {
+                continue;
+            }
+            if let Some(name) = read_font_family(path) {
+                families.insert(name);
+            }
+        }
+    }
+    families.into_iter().collect()
+}
+
+/// Read the font family name (name ID 1) from a TTF/OTF file.
+fn read_font_family(path: &std::path::Path) -> Option<String> {
+    let data = std::fs::read(path).ok()?;
+    // TTC files: read first font's offset
+    let offset = if data.len() >= 12 && &data[0..4] == b"ttcf" {
+        u32::from_be_bytes(data[12..16].try_into().ok()?) as usize
+    } else {
+        0
+    };
+    if data.len() < offset + 12 {
+        return None;
+    }
+    let num_tables = u16::from_be_bytes(data[offset + 4..offset + 6].try_into().ok()?) as usize;
+    // Find 'name' table
+    let mut name_offset = 0usize;
+    for i in 0..num_tables {
+        let rec = offset + 12 + i * 16;
+        if rec + 16 > data.len() {
+            return None;
+        }
+        if &data[rec..rec + 4] == b"name" {
+            name_offset = u32::from_be_bytes(data[rec + 8..rec + 12].try_into().ok()?) as usize;
+            break;
+        }
+    }
+    if name_offset == 0 || name_offset + 6 > data.len() {
+        return None;
+    }
+    let count = u16::from_be_bytes(data[name_offset + 2..name_offset + 4].try_into().ok()?) as usize;
+    let string_offset =
+        name_offset + u16::from_be_bytes(data[name_offset + 4..name_offset + 6].try_into().ok()?) as usize;
+
+    for i in 0..count {
+        let rec = name_offset + 6 + i * 12;
+        if rec + 12 > data.len() {
+            break;
+        }
+        let platform_id = u16::from_be_bytes(data[rec..rec + 2].try_into().ok()?);
+        let encoding_id = u16::from_be_bytes(data[rec + 2..rec + 4].try_into().ok()?);
+        let name_id = u16::from_be_bytes(data[rec + 6..rec + 8].try_into().ok()?);
+        let length = u16::from_be_bytes(data[rec + 8..rec + 10].try_into().ok()?) as usize;
+        let str_off = string_offset + u16::from_be_bytes(data[rec + 10..rec + 12].try_into().ok()?) as usize;
+
+        if name_id != 1 || str_off + length > data.len() {
+            continue;
+        }
+
+        let raw = &data[str_off..str_off + length];
+        // Platform 3 (Windows) encoding 1 = UTF-16BE
+        if platform_id == 3 && encoding_id == 1 {
+            let chars: Vec<u16> = raw.chunks(2).filter_map(|c| c.try_into().ok().map(u16::from_be_bytes)).collect();
+            return Some(String::from_utf16_lossy(&chars));
+        }
+        // Platform 1 (Mac) encoding 0 = MacRoman ≈ ASCII for family names
+        if platform_id == 1 {
+            return Some(String::from_utf8_lossy(raw).into_owned());
+        }
+    }
+    None
+}
+
+#[component]
+fn FontPicker(config: Signal<StatuslineConfig>) -> Element {
+    let mut query = use_signal(|| config.read().editor_font.clone().unwrap_or_default());
+    let mut focused = use_signal(|| false);
+    let system_fonts = use_signal(list_system_fonts);
+
+    let fonts = system_fonts.read();
+    let q = query.read().to_lowercase();
+    let matches: Vec<&String> = if q.is_empty() {
+        fonts.iter().take(12).collect()
+    } else {
+        fonts
+            .iter()
+            .filter(|f| f.to_lowercase().contains(&q))
+            .take(12)
+            .collect()
+    };
+    let show_dropdown = *focused.read() && !matches.is_empty();
+
+    rsx! {
+        div { style: "position:relative;",
+            div { style: "display:flex; gap:6px; align-items:center;",
+                button {
+                    style: if config.read().editor_font.is_none() {
+                        "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer; font-weight:bold;"
+                    } else {
+                        "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:4px 14px; font-size:12px; cursor:pointer;"
+                    },
+                    onclick: move |_| {
+                        config.write().editor_font = None;
+                        query.set(String::new());
+                        autosave(&config);
+                    },
+                    "Default"
+                }
+                input {
+                    r#type: "text",
+                    placeholder: "Search fonts...",
+                    value: "{query}",
+                    style: "background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 8px; font-size:12px; width:200px;",
+                    onfocus: move |_| focused.set(true),
+                    onblur: move |_| {
+                        // Delay to allow click on dropdown item
+                        spawn(async move {
+                            let _ = document::eval("return new Promise(r => setTimeout(r, 150));").await;
+                            focused.set(false);
+                        });
+                    },
+                    oninput: move |evt| {
+                        query.set(evt.value());
+                    }
+                }
+                if let Some(f) = config.read().editor_font.clone() {
+                    span { style: "color:#a6adc8; font-size:12px;", "Active: " }
+                    span { style: "color:#cdd6f4; font-size:12px; font-family:'{f}',monospace;", "{f}" }
+                }
+            }
+            if show_dropdown {
+                div {
+                    style: "position:absolute; top:30px; left:56px; z-index:100; background:#181825; border:1px solid #45475a; border-radius:4px; max-height:200px; overflow-y:auto; min-width:220px;",
+                    for font_name in matches {
+                        {
+                            let fname = font_name.clone();
+                            let fname2 = font_name.clone();
+                            rsx! {
+                                div {
+                                    key: "{fname}",
+                                    class: "font-item",
+                                    style: "padding:4px 10px; cursor:pointer; font-size:12px; color:#cdd6f4; font-family:'{fname}',monospace;",
+                                    onmousedown: move |evt| {
+                                        evt.prevent_default();
+                                    },
+                                    onclick: move |_| {
+                                        let selected = fname2.clone();
+                                        query.set(selected.clone());
+                                        config.write().editor_font = Some(selected);
+                                        focused.set(false);
+                                        autosave(&config);
+                                    },
+                                    "{font_name}"
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
