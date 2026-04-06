@@ -1,7 +1,7 @@
 #!/bin/bash
-# Example soffit plugin: weather widget (mock data)
+# Example soffit widget: weather widget (mock data)
 #
-# In a real plugin you would call a weather API and cache results to a temp
+# In a real widget you would call a weather API and cache results to a temp
 # file (e.g. /tmp/soffit-weather-cache) so the widget stays within the
 # ~200ms render budget. Something like:
 #

@@ -1,4 +1,4 @@
-//! Customizable statusline manager for Claude Code with plugin system and desktop editor.
+//! Customizable statusline manager for Claude Code with widget system and desktop editor.
 mod cache;
 mod config;
 mod edit;
@@ -27,12 +27,6 @@ enum Cli {
     /// Open the config editor (native desktop GUI)
     #[cfg(feature = "desktop")]
     Edit,
-    /// Serve the config editor over HTTP for remote access
-    Serve {
-        /// Port to listen on
-        #[arg(long, default_value = "3120")]
-        port: u16,
-    },
     /// List available widgets
     Widgets,
     /// Render a single widget for testing
@@ -87,7 +81,7 @@ fn main() -> anyhow::Result<()> {
             for w in widgets::AVAILABLE {
                 println!("{w}");
             }
-            for p in plugin::list_plugins() {
+            for p in plugin::list_custom_widgets() {
                 println!("{p}");
             }
             Ok(())
@@ -96,11 +90,10 @@ fn main() -> anyhow::Result<()> {
         Cli::FetchVersion => fetch_version(),
         Cli::RefreshCost { sid } => refresh_cost(&sid),
         Cli::Install { source, force } => install::run(&source, force),
-        Cli::Uninstall { name } => plugin::delete_plugin(&name),
+        Cli::Uninstall { name } => plugin::delete_widget(&name),
         Cli::Marketplace { cmd } => marketplace::run(cmd),
         Cli::Update => update::run(),
         Cli::FetchSelfVersion => fetch_self_version(),
-        Cli::Serve { port: _ } => anyhow::bail!("serve not yet implemented (Phase 2)"),
         Cli::Setup => setup::run(),
     }
 }
@@ -263,7 +256,10 @@ fn refresh_cost(sid: &str) -> anyhow::Result<()> {
         }
     }
 
-    let target = 300.0_f64;
+    let target = crate::config::StatuslineConfig::load()
+        .ok()
+        .and_then(|c| c.weekly_budget)
+        .unwrap_or(300.0);
 
     cache::write_cache(
         paths::cost_daily(),

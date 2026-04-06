@@ -12,7 +12,42 @@ pub fn run() -> Result<()> {
         println!("soffit: restart Claude Code to activate");
     }
 
+    install_desktop_entry()?;
+
     Ok(())
+}
+
+fn install_desktop_entry() -> Result<()> {
+    let home = dirs::home_dir().context("home directory not found")?;
+    let soffit_bin = which_soffit().unwrap_or_else(|| "soffit".into());
+
+    let icon_dir = home.join(".local/share/icons");
+    std::fs::create_dir_all(&icon_dir).ok();
+    let icon_dest = icon_dir.join("soffit.png");
+    if !icon_dest.exists() {
+        std::fs::write(&icon_dest, include_bytes!("../assets/icon.png")).ok();
+    }
+
+    let apps_dir = home.join(".local/share/applications");
+    std::fs::create_dir_all(&apps_dir).ok();
+    let desktop_path = apps_dir.join("soffit.desktop");
+    let content = format!(
+        "[Desktop Entry]\nName=Soffit\nComment=Statusline editor for Claude Code\nExec={} edit\nIcon={}\nType=Application\nCategories=Development;\nStartupWMClass=soffit\n",
+        soffit_bin.display(),
+        icon_dest.display(),
+    );
+    std::fs::write(&desktop_path, content).ok();
+
+    Ok(())
+}
+
+fn which_soffit() -> Option<PathBuf> {
+    std::process::Command::new("which")
+        .arg("soffit")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim().to_string()))
 }
 
 fn claude_settings_path() -> Result<PathBuf> {

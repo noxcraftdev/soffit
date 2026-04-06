@@ -33,9 +33,9 @@ cargo run -- edit
 echo '{"session_id":"test","version":"1.0.0","model":{"display_name":"claude-sonnet-4-6"},"context_window":{"used_percentage":50.0}}' | cargo run -- render
 ```
 
-## Plugin development
+## Widget development
 
-See the [Custom Plugins](README.md#custom-plugins) section in the README for the plugin format, input/output contract, and sidecar metadata.
+See the [Custom Widgets](README.md#custom-widgets) section in the README for the widget format, input/output contract, and sidecar metadata.
 
 ## Pull requests
 

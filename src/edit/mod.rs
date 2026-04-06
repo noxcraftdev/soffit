@@ -6,7 +6,7 @@ use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
 
 use crate::config::StatuslineConfig;
-use crate::plugin::{self, PluginMeta};
+use crate::plugin;
 use crate::theme::{
     ansi_256_to_hex, BarStyle, PaletteRole, ThemePalette, CURATED_COLORS, PALETTE_ROLES,
     THEME_PRESETS,
@@ -320,10 +320,6 @@ fn widget_preview(
     let mut pal = config.palette.clone();
     if let Some(wref) = widget_ref(name) {
         let per_widget_theme = config.widgets.get(name).and_then(|wc| wc.theme.as_ref());
-        for slot in wref.color_slots {
-            let idx = config.palette.resolve(slot.palette_role);
-            pal.set_role(slot.palette_role, idx);
-        }
         if let Some(theme_map) = per_widget_theme {
             for slot in wref.color_slots {
                 if let Some(tv) = theme_map.get(slot.key) {
@@ -577,7 +573,7 @@ fn widget_preview(
         }
         "duration" => {
             let duration_icon = resolve_preview_icon(&widget_icons, "duration", "⏱ ").to_string();
-            rsx! { span { if !compact { "{duration_icon}" } "1h23m" } }
+            rsx! { span { style: "color:{orange}", if !compact { "{duration_icon}" } "1h23m" } }
         }
         "vim" => rsx! { span { style: "color:{purple}", if !compact { " " } "NORMAL" } },
         "agent" => {
@@ -588,7 +584,7 @@ fn widget_preview(
         _ => {
             // Build palette-aware effective palette, then apply per-widget color overrides.
             let wmeta = crate::plugin::widget_meta(name);
-            let mut plugin_palette = config.palette.clone();
+            let mut widget_palette = config.palette.clone();
             if let (Some(ref wmeta), Some(wc)) = (&wmeta, config.widgets.get(name)) {
                 if let Some(ref theme_map) = wc.theme {
                     for slot in &wmeta.theme_slots {
@@ -598,13 +594,13 @@ fn widget_preview(
                                 ThemeValue::Role(r) => config.palette.resolve(*r),
                             };
                             if let Some(role) = slot.palette_role {
-                                plugin_palette.set_role(role, idx);
+                                widget_palette.set_role(role, idx);
                             }
                         }
                     }
                 }
             }
-            let plugin_icons: serde_json::Value = {
+            let widget_icons: serde_json::Value = {
                 let user_icons = config.widgets.get(name).and_then(|wc| wc.icons.as_ref());
                 let mut map = serde_json::Map::new();
                 if let Some(ref wmeta) = wmeta {
@@ -624,20 +620,20 @@ fn widget_preview(
                     "compact": compact,
                     "components": components,
                     "palette": {
-                        "primary": crate::theme::ansi(plugin_palette.primary),
-                        "accent": crate::theme::ansi(plugin_palette.accent),
-                        "success": crate::theme::ansi(plugin_palette.success),
-                        "warning": crate::theme::ansi(plugin_palette.warning),
-                        "danger": crate::theme::ansi(plugin_palette.danger),
-                        "muted": crate::theme::ansi(plugin_palette.muted),
-                        "subtle": crate::theme::ansi(plugin_palette.subtle),
+                        "primary": crate::theme::ansi(widget_palette.primary),
+                        "accent": crate::theme::ansi(widget_palette.accent),
+                        "success": crate::theme::ansi(widget_palette.success),
+                        "warning": crate::theme::ansi(widget_palette.warning),
+                        "danger": crate::theme::ansi(widget_palette.danger),
+                        "muted": crate::theme::ansi(widget_palette.muted),
+                        "subtle": crate::theme::ansi(widget_palette.subtle),
                         "reset": crate::theme::RESET,
                     },
-                    "icons": plugin_icons,
+                    "icons": widget_icons,
                     "bar_style": "block",
                 }
             });
-            match crate::plugin::run_plugin(name, &input.to_string()) {
+            match crate::plugin::run_widget(name, &input.to_string()) {
                 Some(text) => {
                     let html = crate::theme::ansi_to_html(&text).to_string();
                     rsx! { span { dangerous_inner_html: "{html}" } }
@@ -675,7 +671,7 @@ pub fn App() -> Element {
     let config_init = StatuslineConfig::load().unwrap_or_default();
     let mut config = use_signal(|| config_init);
     let mut active_tab = use_signal(|| Tab::Lines);
-    let plugin_metas = use_signal(plugin::list_plugin_metas);
+    let widget_metas = use_signal(plugin::list_widget_metas);
 
     let tab = *active_tab.read();
     let cfg_snap = config.read().clone();
@@ -729,7 +725,7 @@ pub fn App() -> Element {
                                     w.default_components.iter().map(|s| s.to_string()).collect()
                                 })
                                 .or_else(|| {
-                                    plugin_metas
+                                    widget_metas
                                         .read()
                                         .iter()
                                         .find(|p| p.name == widget_name)
@@ -796,8 +792,8 @@ pub fn App() -> Element {
             div {
                 style: "flex:1; min-height:0; overflow-y:auto; padding:16px;",
                 match tab {
-                    Tab::Lines => rsx! { LinesTab { config, plugin_metas } },
-                    Tab::Widgets => rsx! { WidgetsTab { config, plugin_metas } },
+                    Tab::Lines => rsx! { LinesTab { config, widget_metas } },
+                    Tab::Widgets => rsx! { WidgetsTab { config, widget_metas } },
                     Tab::Settings => rsx! { SettingsTab { config } },
                 }
             }
@@ -1206,7 +1202,22 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                 }
             }
 
-            // Section 5: Editor Font
+            // Section 5: Weekly Budget
+            div { style: "margin-bottom:20px;",
+                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Weekly Budget ($)" }
+                input {
+                    r#type: "number",
+                    value: "{config.read().weekly_budget.unwrap_or(300.0)}",
+                    style: "background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace; width:100px;",
+                    oninput: move |evt| {
+                        let v: Option<f64> = evt.value().parse().ok();
+                        config.write().weekly_budget = v;
+                        autosave(&config);
+                    },
+                }
+            }
+
+            // Section 6: Editor Font
             div { style: "margin-bottom:20px;",
                 div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Editor Font" }
                 FontPicker { config }
@@ -1476,11 +1487,14 @@ fn FontPicker(config: Signal<StatuslineConfig>) -> Element {
 // ---- lines tab -------------------------------------------------------------
 
 #[component]
-fn LinesTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginMeta>>) -> Element {
+fn LinesTab(
+    config: Signal<StatuslineConfig>,
+    widget_metas: Signal<Vec<plugin::WidgetMeta>>,
+) -> Element {
     rsx! {
         div {
             for line_idx in 0..3usize {
-                LineRow { config, plugin_metas, line_idx }
+                LineRow { config, widget_metas, line_idx }
             }
         }
     }
@@ -1489,7 +1503,7 @@ fn LinesTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginMet
 #[component]
 fn LineRow(
     config: Signal<StatuslineConfig>,
-    plugin_metas: Signal<Vec<PluginMeta>>,
+    widget_metas: Signal<Vec<plugin::WidgetMeta>>,
     line_idx: usize,
 ) -> Element {
     let widgets: Vec<String> = get_line(&config.read(), line_idx).clone();
@@ -1513,7 +1527,7 @@ fn LineRow(
                 }
                 // Drop zone at end of line for appending
                 div { class: "dnd-drop-zone" }
-                AddWidgetSelect { config, plugin_metas, line_idx, current_widgets: widgets.clone() }
+                AddWidgetSelect { config, widget_metas, line_idx, current_widgets: widgets.clone() }
             }
         }
     }
@@ -1555,7 +1569,7 @@ fn LineChip(
 #[component]
 fn AddWidgetSelect(
     config: Signal<StatuslineConfig>,
-    plugin_metas: Signal<Vec<PluginMeta>>,
+    widget_metas: Signal<Vec<plugin::WidgetMeta>>,
     line_idx: usize,
     current_widgets: Vec<String>,
 ) -> Element {
@@ -1579,7 +1593,7 @@ fn AddWidgetSelect(
                     option { value: "{w.name}", "{w.name} — {w.description}" }
                 }
             }
-            for p in plugin_metas.read().iter() {
+            for p in widget_metas.read().iter() {
                 if !current_widgets.contains(&p.name) {
                     option { value: "{p.name}", "{p.name} — {p.description}" }
                 }
@@ -1591,8 +1605,11 @@ fn AddWidgetSelect(
 // ---- widgets tab -----------------------------------------------------------
 
 #[component]
-fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginMeta>>) -> Element {
-    let metas = plugin_metas.read().clone();
+fn WidgetsTab(
+    config: Signal<StatuslineConfig>,
+    widget_metas: Signal<Vec<plugin::WidgetMeta>>,
+) -> Element {
+    let metas = widget_metas.read().clone();
     let mut show_create_form = use_signal(|| false);
     let mut new_name = use_signal(String::new);
     let mut new_lang = use_signal(|| "bash".to_string());
@@ -1628,11 +1645,11 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                 }
                 if *show_create_form.read() {
                     div { style: "background:#181825; border:1px solid #313244; border-radius:6px; padding:12px; margin-bottom:8px;",
-                        // New plugin from template
+                        // New widget from template
                         div { style: "display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px;",
                             input {
                                 r#type: "text",
-                                placeholder: "plugin-name",
+                                placeholder: "widget-name",
                                 value: "{new_name.read()}",
                                 style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace;",
                                 oninput: move |evt| new_name.set(evt.value()),
@@ -1686,11 +1703,11 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                                             format!("#!/bin/bash\n# Reads Claude Code JSON from stdin, outputs widget text\necho \"{name}\"\n"),
                                         )
                                     };
-                                    if let Err(e) = plugin::create_plugin(&name, ext, &template) {
+                                    if let Err(e) = plugin::create_widget(&name, ext, &template) {
                                         create_error.set(format!("Error: {e}"));
                                         return;
                                     }
-                                    plugin_metas.set(plugin::list_plugin_metas());
+                                    widget_metas.set(plugin::list_widget_metas());
                                     show_create_form.set(false);
                                     create_error.set(String::new());
                                 },
@@ -1709,9 +1726,9 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                                             .set_title("Import script")
                                             .pick_file();
                                         if let Some(path) = file {
-                                            match plugin::import_plugin(&path) {
+                                            match plugin::import_widget(&path) {
                                                 Ok(_) => {
-                                                    plugin_metas.set(plugin::list_plugin_metas());
+                                                    widget_metas.set(plugin::list_widget_metas());
                                                     show_create_form.set(false);
                                                     create_error.set(String::new());
                                                 }
@@ -1736,7 +1753,7 @@ fn WidgetsTab(config: Signal<StatuslineConfig>, plugin_metas: Signal<Vec<PluginM
                         widget_name: p.name.clone(),
                         all_components: p.components.clone(),
                         has_compact: p.has_compact,
-                        plugin_metas: Some(plugin_metas),
+                        widget_metas: Some(widget_metas),
                     }
                 }
             }
@@ -1750,17 +1767,17 @@ fn WidgetAccordion(
     widget_name: String,
     all_components: Vec<String>,
     has_compact: bool,
-    plugin_metas: Option<Signal<Vec<PluginMeta>>>,
+    widget_metas: Option<Signal<Vec<plugin::WidgetMeta>>>,
 ) -> Element {
-    let is_custom = plugin_metas.is_some();
+    let is_custom = widget_metas.is_some();
 
     let source_init = if is_custom {
-        plugin::read_plugin_source(&widget_name).unwrap_or_default()
+        plugin::read_widget_source(&widget_name).unwrap_or_default()
     } else {
         String::new()
     };
     let mut source = use_signal(|| source_init);
-    let mut preview_result: Signal<Option<plugin::PluginOutput>> = use_signal(|| None);
+    let mut preview_result: Signal<Option<plugin::WidgetOutput>> = use_signal(|| None);
     let mut editing = use_signal(|| false);
     let mut renaming = use_signal(|| false);
     let mut rename_value = use_signal(|| widget_name.clone());
@@ -2043,7 +2060,7 @@ fn WidgetAccordion(
                             }
                         }
 
-                        // Custom widget color slots (from plugin TOML)
+                        // Custom widget color slots (from sidecar TOML)
                         if is_custom && !custom_color_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
                                 div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors" }
@@ -2082,7 +2099,7 @@ fn WidgetAccordion(
                             }
                         }
 
-                        // Custom widget icon slots (from plugin TOML)
+                        // Custom widget icon slots (from sidecar TOML)
                         if is_custom && !custom_icon_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
                                 div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Icons" }
@@ -2232,10 +2249,10 @@ fn WidgetAccordion(
                             button {
                                 style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-top:6px;",
                                 onclick: move |_| {
-                                    if let Err(e) = plugin::write_plugin_source(&name_save, &source.read()) {
-                                        eprintln!("write_plugin_source failed: {e}");
-                                    } else if let Some(mut pm) = plugin_metas {
-                                        pm.set(plugin::list_plugin_metas());
+                                    if let Err(e) = plugin::write_widget_source(&name_save, &source.read()) {
+                                        eprintln!("write_widget_source failed: {e}");
+                                    } else if let Some(mut pm) = widget_metas {
+                                        pm.set(plugin::list_widget_metas());
                                     }
                                 },
                                 "Save"
@@ -2247,7 +2264,7 @@ fn WidgetAccordion(
                             button {
                                 style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-bottom:6px;",
                                 onclick: move |_| {
-                                    let result = plugin::run_plugin_full(&name_run, &plugin::mock_stdin_json());
+                                    let result = plugin::run_widget_full(&name_run, &plugin::mock_stdin_json());
                                     preview_result.set(result);
                                 },
                                 "Run"
@@ -2307,10 +2324,10 @@ fn WidgetAccordion(
                                             renaming.set(false);
                                             return;
                                         }
-                                        match plugin::rename_plugin(&name_rename, &new) {
+                                        match plugin::rename_widget(&name_rename, &new) {
                                             Ok(()) => {
-                                                if let Some(mut pm) = plugin_metas {
-                                                    pm.set(plugin::list_plugin_metas());
+                                                if let Some(mut pm) = widget_metas {
+                                                    pm.set(plugin::list_widget_metas());
                                                 }
                                                 renaming.set(false);
                                             }
@@ -2339,10 +2356,10 @@ fn WidgetAccordion(
                                 button {
                                     style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
                                     onclick: move |_| {
-                                        if let Err(e) = plugin::delete_plugin(&name_delete) {
-                                            eprintln!("delete_plugin failed: {e}");
-                                        } else if let Some(mut pm) = plugin_metas {
-                                            pm.set(plugin::list_plugin_metas());
+                                        if let Err(e) = plugin::delete_widget(&name_delete) {
+                                            eprintln!("delete_widget failed: {e}");
+                                        } else if let Some(mut pm) = widget_metas {
+                                            pm.set(plugin::list_widget_metas());
                                         }
                                     },
                                     "Delete"

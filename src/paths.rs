@@ -13,8 +13,16 @@ pub fn config_dir() -> PathBuf {
     canonical
 }
 
-pub fn plugins_dir() -> PathBuf {
-    config_dir().join("plugins")
+pub fn widgets_dir() -> PathBuf {
+    let canonical = config_dir().join("widgets");
+    let legacy = config_dir().join("plugins");
+    if canonical.exists() {
+        return canonical;
+    }
+    if legacy.exists() {
+        return legacy;
+    }
+    canonical
 }
 
 pub fn version_cache() -> &'static str {

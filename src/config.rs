@@ -23,6 +23,7 @@ pub struct StatuslineConfig {
     pub editor_font: Option<String>,
     pub editor_width: Option<f64>,
     pub editor_height: Option<f64>,
+    pub weekly_budget: Option<f64>,
 }
 
 impl Default for StatuslineConfig {
@@ -46,6 +47,7 @@ impl Default for StatuslineConfig {
             editor_font: None,
             editor_width: None,
             editor_height: None,
+            weekly_budget: None,
         }
     }
 }
@@ -105,10 +107,10 @@ impl StatuslineConfig {
                 .map(|s| s.to_string()),
             editor_width: table.get("editor_width").and_then(|v| v.as_float()),
             editor_height: table.get("editor_height").and_then(|v| v.as_float()),
+            weekly_budget: table.get("weekly_budget").and_then(|v| v.as_float()),
         })
     }
 
-    #[allow(dead_code)] // Used by editor (Phase 5) and tests
     pub fn save(&self) -> Result<()> {
         let path = config_path();
         let raw = fs::read_to_string(&path).unwrap_or_default();
@@ -130,7 +132,6 @@ impl StatuslineConfig {
         Ok(())
     }
 
-    #[allow(dead_code)] // Used by save() and tests
     fn apply_to_table(&self, table: &mut toml::Table) -> Result<()> {
         table.insert(
             "statusline_line1".to_string(),
@@ -212,6 +213,12 @@ impl StatuslineConfig {
             table.insert("editor_height".to_string(), toml::Value::Float(h));
         } else {
             table.remove("editor_height");
+        }
+
+        if let Some(b) = self.weekly_budget {
+            table.insert("weekly_budget".to_string(), toml::Value::Float(b));
+        } else {
+            table.remove("weekly_budget");
         }
 
         Ok(())

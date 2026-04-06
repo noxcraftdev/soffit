@@ -1,5 +1,5 @@
 #!/bin/bash
-# Example soffit plugin: Docker container status
+# Example soffit widget: Docker container status
 #
 # Shows the count of running containers and (in non-compact mode) the names
 # of the first three. Gracefully degrades when Docker is not running.

@@ -1,14 +1,13 @@
 use crate::theme::PaletteRole;
 
-#[allow(dead_code)]
 pub struct ThemeSlot {
     pub key: &'static str,
     pub label: &'static str,
     pub palette_role: PaletteRole,
+    #[allow(dead_code)]
     pub default_idx: u8,
 }
 
-#[allow(dead_code)]
 pub struct IconSlot {
     pub key: &'static str,
     pub label: &'static str,
@@ -22,9 +21,7 @@ pub struct WidgetRef {
     pub description: &'static str,
     pub default_components: &'static [&'static str],
     pub has_compact: bool,
-    #[allow(dead_code)]
     pub color_slots: &'static [ThemeSlot],
-    #[allow(dead_code)]
     pub icon_slots: &'static [IconSlot],
 }
 
@@ -100,12 +97,32 @@ pub const WIDGETS: &[WidgetRef] = &[
         description: "Session duration",
         default_components: &[],
         has_compact: false,
-        color_slots: &[ThemeSlot {
-            key: "time",
-            label: "Duration",
-            palette_role: PaletteRole::Subtle,
-            default_idx: 250,
-        }],
+        color_slots: &[
+            ThemeSlot {
+                key: "time",
+                label: "< 30m",
+                palette_role: PaletteRole::Subtle,
+                default_idx: 250,
+            },
+            ThemeSlot {
+                key: "time_medium",
+                label: "30m\u{2013}1h",
+                palette_role: PaletteRole::Muted,
+                default_idx: 242,
+            },
+            ThemeSlot {
+                key: "time_high",
+                label: "1h\u{2013}2h",
+                palette_role: PaletteRole::Warning,
+                default_idx: 208,
+            },
+            ThemeSlot {
+                key: "time_critical",
+                label: "> 2h",
+                palette_role: PaletteRole::Danger,
+                default_idx: 196,
+            },
+        ],
         icon_slots: &[IconSlot {
             key: "duration",
             label: "Duration Icon",

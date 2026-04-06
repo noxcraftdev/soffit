@@ -289,7 +289,7 @@ fn quota_fill_char(bar_style: &BarStyle, icons: &IconsConfig, zone_f: f64) -> ch
     }
 }
 
-fn _fmt_duration(secs: f64, show_seconds: bool) -> String {
+fn fmt_duration_hm(secs: f64, show_seconds: bool) -> String {
     let secs = secs as u64;
     if show_seconds && secs < 60 {
         return format!("{}s", secs);
@@ -328,7 +328,7 @@ pub fn fmt_reset(resets_at: &serde_json::Value) -> (String, f64) {
     };
 
     let remaining = (target - now).max(0.0);
-    let formatted = _fmt_duration(remaining, false);
+    let formatted = fmt_duration_hm(remaining, false);
     (formatted, remaining)
 }
 

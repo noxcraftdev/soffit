@@ -1,11 +1,11 @@
 #!/bin/bash
-# Example soffit plugin: Pomodoro timer
+# Example soffit widget: Pomodoro timer
 #
 # Control commands (run from your shell, not from soffit):
 #   Start a session:  echo $(date +%s) > /tmp/soffit-pomodoro
 #   Stop a session:   rm /tmp/soffit-pomodoro
 #
-# The plugin reads that state file on every render and computes how many
+# The widget reads that state file on every render and computes how many
 # minutes remain. No background process needed.
 
 INPUT=$(cat)

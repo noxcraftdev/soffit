@@ -127,7 +127,8 @@ pub struct RegistryEntry {
 
 #[derive(serde::Deserialize)]
 struct RegistryRoot {
-    plugins: Vec<RegistryEntry>,
+    #[serde(alias = "plugins")]
+    widgets: Vec<RegistryEntry>,
 }
 
 pub(crate) fn fetch_registry(repo: &str) -> anyhow::Result<Vec<RegistryEntry>> {
@@ -138,7 +139,7 @@ pub(crate) fn fetch_registry(repo: &str) -> anyhow::Result<Vec<RegistryEntry>> {
     if !crate::cache::needs_refresh(&cache_path, 3600.0) {
         if let Some(cached) = crate::cache::read_stale(&cache_path) {
             let root: RegistryRoot = serde_json::from_str(&cached)?;
-            return Ok(root.plugins);
+            return Ok(root.widgets);
         }
     }
 
@@ -146,7 +147,7 @@ pub(crate) fn fetch_registry(repo: &str) -> anyhow::Result<Vec<RegistryEntry>> {
     let bytes = crate::http::curl_fetch(&url)?;
     let root: RegistryRoot = serde_json::from_slice(&bytes)?;
     crate::cache::write_cache(&cache_path, &String::from_utf8_lossy(&bytes));
-    Ok(root.plugins)
+    Ok(root.widgets)
 }
 
 pub fn resolve_and_install(name: &str, force: bool) -> anyhow::Result<()> {
@@ -185,7 +186,7 @@ pub fn resolve_and_install(name: &str, force: bool) -> anyhow::Result<()> {
             };
             let toml_url = crate::install::raw_url(owner, repo_name, &toml_file);
             let toml_opt = crate::http::curl_fetch(&toml_url).ok();
-            let install_dir = crate::paths::plugins_dir();
+            let install_dir = crate::paths::widgets_dir();
             crate::install::install_one_in(
                 &install_dir,
                 name,

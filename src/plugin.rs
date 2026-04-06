@@ -6,7 +6,7 @@ use std::process::{Command, Stdio};
 use crate::paths;
 use crate::widgets;
 
-fn list_plugins_in(dir: &Path) -> Vec<String> {
+fn list_custom_widgets_in(dir: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
@@ -36,26 +36,26 @@ fn list_plugins_in(dir: &Path) -> Vec<String> {
     names
 }
 
-pub fn list_plugins() -> Vec<String> {
-    list_plugins_in(&paths::plugins_dir())
+pub fn list_custom_widgets() -> Vec<String> {
+    list_custom_widgets_in(&paths::widgets_dir())
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct PluginMeta {
+pub struct WidgetMeta {
     pub name: String,
     pub description: String,
     pub components: Vec<String>,
     pub has_compact: bool,
 }
 
-fn list_plugin_metas_in(dir: &Path) -> Vec<PluginMeta> {
-    list_plugins_in(dir)
+fn list_widget_metas_in(dir: &Path) -> Vec<WidgetMeta> {
+    list_custom_widgets_in(dir)
         .into_iter()
         .map(|name| {
             let toml_path = dir.join(format!("{name}.toml"));
             if let Ok(raw) = std::fs::read_to_string(&toml_path) {
                 if let Ok(table) = raw.parse::<toml::Table>() {
-                    return PluginMeta {
+                    return WidgetMeta {
                         name: name.clone(),
                         description: table
                             .get("description")
@@ -78,7 +78,7 @@ fn list_plugin_metas_in(dir: &Path) -> Vec<PluginMeta> {
                     };
                 }
             }
-            PluginMeta {
+            WidgetMeta {
                 name,
                 description: "Custom widget".to_string(),
                 components: vec![],
@@ -88,8 +88,8 @@ fn list_plugin_metas_in(dir: &Path) -> Vec<PluginMeta> {
         .collect()
 }
 
-pub fn list_plugin_metas() -> Vec<PluginMeta> {
-    list_plugin_metas_in(&paths::plugins_dir())
+pub fn list_widget_metas() -> Vec<WidgetMeta> {
+    list_widget_metas_in(&paths::widgets_dir())
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +105,7 @@ pub struct OwnedIconSlot {
 }
 
 #[derive(Debug, Clone)]
-pub struct WidgetMeta {
+pub struct OwnedWidgetMeta {
     pub theme_slots: Vec<OwnedThemeSlot>,
     pub icon_slots: Vec<OwnedIconSlot>,
 }
@@ -114,10 +114,22 @@ fn palette_role_from_name(s: &str) -> Option<crate::theme::PaletteRole> {
     crate::theme::PaletteRole::from_name(s)
 }
 
-pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
+fn legacy_field_to_role(s: &str) -> Option<crate::theme::PaletteRole> {
+    use crate::theme::PaletteRole;
+    match s {
+        "green" => Some(PaletteRole::Success),
+        "orange" | "yellow" => Some(PaletteRole::Warning),
+        "red" => Some(PaletteRole::Danger),
+        "dim" => Some(PaletteRole::Muted),
+        "lgray" => Some(PaletteRole::Subtle),
+        _ => None,
+    }
+}
+
+pub fn widget_meta(name: &str) -> Option<OwnedWidgetMeta> {
     use crate::edit::widget_reference::widget_ref;
     if let Some(wref) = widget_ref(name) {
-        return Some(WidgetMeta {
+        return Some(OwnedWidgetMeta {
             theme_slots: wref
                 .color_slots
                 .iter()
@@ -136,7 +148,7 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
                 .collect(),
         });
     }
-    let dir = crate::paths::plugins_dir();
+    let dir = crate::paths::widgets_dir();
     let script_exists = [name, &format!("{name}.sh")[..], &format!("{name}.py")[..]]
         .iter()
         .any(|f| dir.join(f).exists());
@@ -151,8 +163,8 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
             let ts = table
                 .get("theme")
                 .and_then(|v| v.as_table())
-                .map(|colors_table| {
-                    colors_table
+                .map(|theme_table| {
+                    theme_table
                         .iter()
                         .filter_map(|(key, val)| {
                             let sub = val.as_table()?;
@@ -166,6 +178,28 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
                             })
                         })
                         .collect::<Vec<_>>()
+                })
+                .or_else(|| {
+                    // Fallback: legacy [colors.*] format with theme_field
+                    table
+                        .get("colors")
+                        .and_then(|v| v.as_table())
+                        .map(|colors_table| {
+                            colors_table
+                                .iter()
+                                .filter_map(|(key, val)| {
+                                    let sub = val.as_table()?;
+                                    let role = sub
+                                        .get("theme_field")
+                                        .and_then(|v| v.as_str())
+                                        .and_then(legacy_field_to_role);
+                                    Some(OwnedThemeSlot {
+                                        key: key.clone(),
+                                        palette_role: role,
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        })
                 })
                 .unwrap_or_default();
             let is = table
@@ -191,125 +225,40 @@ pub fn widget_meta(name: &str) -> Option<WidgetMeta> {
             (ts, is)
         })
         .unwrap_or_default();
-    Some(WidgetMeta {
+    Some(OwnedWidgetMeta {
         theme_slots,
         icon_slots,
     })
 }
 
-pub fn run_plugin(name: &str, stdin_json: &str) -> Option<String> {
-    let plugin_dir = paths::plugins_dir();
-    let candidates = [
-        plugin_dir.join(name),
-        plugin_dir.join(format!("{name}.sh")),
-        plugin_dir.join(format!("{name}.py")),
-    ];
-    let path = candidates.iter().find(|p| p.exists())?;
-
-    // Guard against path traversal: canonicalize both and verify containment
-    let canonical_plugins = plugin_dir.canonicalize().ok()?;
-    let canonical_path = path.canonicalize().ok()?;
-    if !canonical_path.starts_with(&canonical_plugins) {
-        return None;
-    }
-
-    let mut child = Command::new(&canonical_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(stdin_json.as_bytes());
-    }
-
-    let child_id = child.id();
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let result = child.wait_with_output();
-        let _ = tx.send(result);
-    });
-
-    let output = match rx.recv_timeout(std::time::Duration::from_millis(200)) {
-        Ok(Ok(out)) if out.status.success() => out,
-        _ => {
-            #[cfg(unix)]
-            // SAFETY: child_id is a valid pid from a process we spawned; SIGKILL is safe to send.
-            unsafe {
-                libc::kill(child_id as i32, libc::SIGKILL);
-            }
-            return None;
-        }
-    };
-
-    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if stdout.is_empty() {
-        return None;
-    }
-
-    // Plugins may embed raw ANSI ESC bytes (0x1B) in JSON output strings via `echo -e`.
-    // Raw ESC bytes are illegal in JSON; escape them so serde_json can parse the structure.
-    let json_src = if stdout.contains('\x1b') {
-        stdout.replace('\x1b', "\\u001b")
+pub fn run_widget(name: &str, stdin_json: &str) -> Option<String> {
+    let out = run_widget_full(name, stdin_json)?;
+    let input: serde_json::Value = serde_json::from_str(stdin_json).unwrap_or_default();
+    let requested: Vec<String> = input
+        .get("config")
+        .and_then(|c| c.get("components"))
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let compact = input
+        .get("config")
+        .and_then(|c| c.get("compact"))
+        .and_then(|c| c.as_bool())
+        .unwrap_or(false);
+    let result = out.compose(&requested, compact);
+    if result.is_empty() {
+        None
     } else {
-        stdout.clone()
-    };
-    // Try to parse as JSON {"output": "..."}, fall back to raw text
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_src) {
-        // If plugin returned "parts", compose them in the requested component order
-        if let Some(parts) = v.get("parts").and_then(|p| p.as_object()) {
-            let requested: Vec<String> = serde_json::from_str::<serde_json::Value>(stdin_json)
-                .ok()
-                .and_then(|input| {
-                    input
-                        .get("config")
-                        .and_then(|c| c.get("components"))
-                        .and_then(|c| c.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect()
-                        })
-                })
-                .unwrap_or_default();
-            let compact = serde_json::from_str::<serde_json::Value>(stdin_json)
-                .ok()
-                .and_then(|input| {
-                    input
-                        .get("config")
-                        .and_then(|c| c.get("compact"))
-                        .and_then(|c| c.as_bool())
-                })
-                .unwrap_or(false);
-
-            let order: Vec<&str> = if requested.is_empty() {
-                parts.keys().map(|k| k.as_str()).collect()
-            } else {
-                requested.iter().map(|s| s.as_str()).collect()
-            };
-            let sep = if compact { " " } else { " | " };
-            let composed: Vec<&str> = order
-                .iter()
-                .filter_map(|k| parts.get(*k).and_then(|v| v.as_str()))
-                .collect();
-            if composed.is_empty() {
-                None
-            } else {
-                Some(composed.join(sep))
-            }
-        } else {
-            v.get("output")
-                .and_then(|o| o.as_str())
-                .map(|s| s.to_string())
-        }
-    } else {
-        Some(stdout)
+        Some(result)
     }
 }
 
 fn source_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
-    // Try exact name, then .sh, then .py (same order as run_plugin)
+    // Try exact name, then .sh, then .py (same order as run_widget)
     let candidates = [
         dir.join(name),
         dir.join(format!("{name}.sh")),
@@ -318,20 +267,20 @@ fn source_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|p| p.exists())
 }
 
-pub fn plugin_source_path(name: &str) -> Option<PathBuf> {
-    source_path_in(&paths::plugins_dir(), name)
+pub fn widget_source_path(name: &str) -> Option<PathBuf> {
+    source_path_in(&paths::widgets_dir(), name)
 }
 
-pub fn read_plugin_source(name: &str) -> Option<String> {
-    let path = plugin_source_path(name)?;
+pub fn read_widget_source(name: &str) -> Option<String> {
+    let path = widget_source_path(name)?;
     std::fs::read_to_string(path).ok()
 }
 
-pub fn write_plugin_source(name: &str, content: &str) -> anyhow::Result<()> {
-    write_plugin_source_in(&paths::plugins_dir(), name, content)
+pub fn write_widget_source(name: &str, content: &str) -> anyhow::Result<()> {
+    write_widget_source_in(&paths::widgets_dir(), name, content)
 }
 
-fn write_plugin_source_in(dir: &Path, name: &str, content: &str) -> anyhow::Result<()> {
+fn write_widget_source_in(dir: &Path, name: &str, content: &str) -> anyhow::Result<()> {
     let path =
         source_path_in(dir, name).ok_or_else(|| anyhow::anyhow!("widget not found: {name}"))?;
     std::fs::write(&path, content)?;
@@ -345,11 +294,11 @@ fn write_plugin_source_in(dir: &Path, name: &str, content: &str) -> anyhow::Resu
     Ok(())
 }
 
-pub fn create_plugin(name: &str, ext: &str, template: &str) -> anyhow::Result<()> {
-    create_plugin_in(&paths::plugins_dir(), name, ext, template)
+pub fn create_widget(name: &str, ext: &str, template: &str) -> anyhow::Result<()> {
+    create_widget_in(&paths::widgets_dir(), name, ext, template)
 }
 
-fn create_plugin_in(dir: &Path, name: &str, ext: &str, template: &str) -> anyhow::Result<()> {
+fn create_widget_in(dir: &Path, name: &str, ext: &str, template: &str) -> anyhow::Result<()> {
     std::fs::create_dir_all(dir)?;
     let filename = if ext.is_empty() {
         name.to_string()
@@ -377,11 +326,11 @@ fn create_plugin_in(dir: &Path, name: &str, ext: &str, template: &str) -> anyhow
     Ok(())
 }
 
-pub fn delete_plugin(name: &str) -> anyhow::Result<()> {
-    delete_plugin_in(&paths::plugins_dir(), name)
+pub fn delete_widget(name: &str) -> anyhow::Result<()> {
+    delete_widget_in(&paths::widgets_dir(), name)
 }
 
-pub(crate) fn delete_plugin_in(dir: &Path, name: &str) -> anyhow::Result<()> {
+pub(crate) fn delete_widget_in(dir: &Path, name: &str) -> anyhow::Result<()> {
     // Remove all possible script files
     for candidate in [
         dir.join(name),
@@ -401,13 +350,13 @@ pub(crate) fn delete_plugin_in(dir: &Path, name: &str) -> anyhow::Result<()> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct PluginOutput {
+pub struct WidgetOutput {
     pub text: String,
     pub components: Vec<String>,
     pub parts: HashMap<String, String>,
 }
 
-impl PluginOutput {
+impl WidgetOutput {
     /// Returns the output text, reordered by `requested` component order if parts are available.
     pub fn compose(&self, requested: &[String], compact: bool) -> String {
         if self.parts.is_empty() {
@@ -431,18 +380,18 @@ impl PluginOutput {
     }
 }
 
-pub fn run_plugin_full(name: &str, stdin_json: &str) -> Option<PluginOutput> {
-    let plugin_dir = paths::plugins_dir();
+pub fn run_widget_full(name: &str, stdin_json: &str) -> Option<WidgetOutput> {
+    let widget_dir = paths::widgets_dir();
     let candidates = [
-        plugin_dir.join(name),
-        plugin_dir.join(format!("{name}.sh")),
-        plugin_dir.join(format!("{name}.py")),
+        widget_dir.join(name),
+        widget_dir.join(format!("{name}.sh")),
+        widget_dir.join(format!("{name}.py")),
     ];
     let path = candidates.iter().find(|p| p.exists())?;
 
-    let canonical_plugins = plugin_dir.canonicalize().ok()?;
+    let canonical_widgets = widget_dir.canonicalize().ok()?;
     let canonical_path = path.canonicalize().ok()?;
-    if !canonical_path.starts_with(&canonical_plugins) {
+    if !canonical_path.starts_with(&canonical_widgets) {
         return None;
     }
 
@@ -509,13 +458,13 @@ pub fn run_plugin_full(name: &str, stdin_json: &str) -> Option<PluginOutput> {
                     .collect()
             })
             .unwrap_or_default();
-        Some(PluginOutput {
+        Some(WidgetOutput {
             text,
             components,
             parts,
         })
     } else {
-        Some(PluginOutput {
+        Some(WidgetOutput {
             text: stdout,
             components: vec![],
             parts: HashMap::new(),
@@ -523,8 +472,8 @@ pub fn run_plugin_full(name: &str, stdin_json: &str) -> Option<PluginOutput> {
     }
 }
 
-pub fn rename_plugin(old_name: &str, new_name: &str) -> anyhow::Result<()> {
-    let dir = paths::plugins_dir();
+pub fn rename_widget(old_name: &str, new_name: &str) -> anyhow::Result<()> {
+    let dir = paths::widgets_dir();
     if new_name.is_empty() || new_name.contains(' ') || new_name.contains('/') {
         anyhow::bail!("invalid widget name: {new_name}");
     }
@@ -553,8 +502,8 @@ pub fn rename_plugin(old_name: &str, new_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn import_plugin(source_path: &Path) -> anyhow::Result<String> {
-    let dir = paths::plugins_dir();
+pub fn import_widget(source_path: &Path) -> anyhow::Result<String> {
+    let dir = paths::widgets_dir();
     std::fs::create_dir_all(&dir)?;
     let file_name = source_path
         .file_name()
@@ -617,18 +566,18 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{
-        create_plugin_in, delete_plugin_in, list_plugin_metas_in, list_plugins_in, mock_stdin_json,
-        source_path_in, write_plugin_source_in, PluginMeta,
+        create_widget_in, delete_widget_in, list_custom_widgets_in, list_widget_metas_in,
+        mock_stdin_json, source_path_in, write_widget_source_in, WidgetMeta,
     };
 
     fn make_file(dir: &TempDir, name: &str) {
         fs::write(dir.path().join(name), "").unwrap();
     }
 
-    fn write_plugin_meta_in(
+    fn write_widget_meta_in(
         dir: &std::path::Path,
         name: &str,
-        meta: &PluginMeta,
+        meta: &WidgetMeta,
     ) -> anyhow::Result<()> {
         let toml_path = dir.join(format!("{name}.toml"));
         let mut table = toml::Table::new();
@@ -649,7 +598,7 @@ mod tests {
         Ok(())
     }
 
-    // ---- list_plugins_in ----------------------------------------------------
+    // ---- list_custom_widgets_in ---------------------------------------------
 
     #[test]
     fn discovers_sh_py_and_bare_executables() {
@@ -658,19 +607,19 @@ mod tests {
         make_file(&dir, "another.py");
         make_file(&dir, "bare_exec");
 
-        let mut plugins = list_plugins_in(dir.path());
-        plugins.sort();
+        let mut widgets = list_custom_widgets_in(dir.path());
+        widgets.sort();
 
-        assert_eq!(plugins, vec!["another", "bare_exec", "myplugin"]);
+        assert_eq!(widgets, vec!["another", "bare_exec", "myplugin"]);
     }
 
     #[test]
-    fn toml_sidecar_alone_is_not_a_plugin() {
+    fn toml_sidecar_alone_is_not_a_widget() {
         let dir = TempDir::new().unwrap();
         make_file(&dir, "myplugin.toml");
 
-        let plugins = list_plugins_in(dir.path());
-        assert!(plugins.is_empty());
+        let widgets = list_custom_widgets_in(dir.path());
+        assert!(widgets.is_empty());
     }
 
     #[test]
@@ -679,8 +628,8 @@ mod tests {
         make_file(&dir, "foo");
         make_file(&dir, "foo.sh");
 
-        let plugins = list_plugins_in(dir.path());
-        assert_eq!(plugins, vec!["foo"]);
+        let widgets = list_custom_widgets_in(dir.path());
+        assert_eq!(widgets, vec!["foo"]);
     }
 
     #[test]
@@ -690,24 +639,25 @@ mod tests {
         make_file(&dir, "git.sh");
         make_file(&dir, "custom.sh");
 
-        let plugins = list_plugins_in(dir.path());
-        assert_eq!(plugins, vec!["custom"]);
+        let widgets = list_custom_widgets_in(dir.path());
+        assert_eq!(widgets, vec!["custom"]);
     }
 
     #[test]
     fn returns_empty_for_nonexistent_dir() {
-        let plugins = list_plugins_in(std::path::Path::new("/nonexistent/path/that/never/exists"));
-        assert!(plugins.is_empty());
+        let widgets =
+            list_custom_widgets_in(std::path::Path::new("/nonexistent/path/that/never/exists"));
+        assert!(widgets.is_empty());
     }
 
-    // ---- list_plugin_metas_in -----------------------------------------------
+    // ---- list_widget_metas_in -----------------------------------------------
 
     #[test]
-    fn plugin_without_sidecar_gets_defaults() {
+    fn widget_without_sidecar_gets_defaults() {
         let dir = TempDir::new().unwrap();
         make_file(&dir, "simple.sh");
 
-        let metas = list_plugin_metas_in(dir.path());
+        let metas = list_widget_metas_in(dir.path());
         assert_eq!(metas.len(), 1);
         let m = &metas[0];
         assert_eq!(m.name, "simple");
@@ -717,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn plugin_with_sidecar_is_parsed() {
+    fn widget_with_sidecar_is_parsed() {
         let dir = TempDir::new().unwrap();
         make_file(&dir, "mywidget.sh");
         fs::write(
@@ -729,7 +679,7 @@ has_compact = true
         )
         .unwrap();
 
-        let metas = list_plugin_metas_in(dir.path());
+        let metas = list_widget_metas_in(dir.path());
         assert_eq!(metas.len(), 1);
         let m = &metas[0];
         assert_eq!(m.name, "mywidget");
@@ -744,7 +694,7 @@ has_compact = true
         make_file(&dir, "broken.sh");
         fs::write(dir.path().join("broken.toml"), "not valid toml ][[[").unwrap();
 
-        let metas = list_plugin_metas_in(dir.path());
+        let metas = list_widget_metas_in(dir.path());
         assert_eq!(metas.len(), 1);
         let m = &metas[0];
         assert_eq!(m.description, "Custom widget");
@@ -772,14 +722,14 @@ has_compact = true
         assert!(source_path_in(dir.path(), "ghost").is_none());
     }
 
-    // ---- write_plugin_source_in / create_plugin_in / delete_plugin_in -------
+    // ---- write_widget_source_in / create_widget_in / delete_widget_in ------
 
     #[test]
     fn write_and_read_plugin_source() {
         let dir = TempDir::new().unwrap();
         make_file(&dir, "myplugin.sh");
 
-        write_plugin_source_in(dir.path(), "myplugin", "#!/bin/sh\necho hi").unwrap();
+        write_widget_source_in(dir.path(), "myplugin", "#!/bin/sh\necho hi").unwrap();
 
         let content = fs::read_to_string(dir.path().join("myplugin.sh")).unwrap();
         assert_eq!(content, "#!/bin/sh\necho hi");
@@ -788,13 +738,13 @@ has_compact = true
     #[test]
     fn write_plugin_source_errors_on_missing_plugin() {
         let dir = TempDir::new().unwrap();
-        assert!(write_plugin_source_in(dir.path(), "ghost", "content").is_err());
+        assert!(write_widget_source_in(dir.path(), "ghost", "content").is_err());
     }
 
     #[test]
     fn create_plugin_writes_script_and_sidecar() {
         let dir = TempDir::new().unwrap();
-        create_plugin_in(dir.path(), "myplugin", "sh", "#!/bin/sh\necho hello").unwrap();
+        create_widget_in(dir.path(), "myplugin", "sh", "#!/bin/sh\necho hello").unwrap();
 
         assert!(dir.path().join("myplugin.sh").exists());
         assert!(dir.path().join("myplugin.toml").exists());
@@ -805,8 +755,8 @@ has_compact = true
     #[test]
     fn create_plugin_rejects_duplicate() {
         let dir = TempDir::new().unwrap();
-        create_plugin_in(dir.path(), "dup", "sh", "").unwrap();
-        assert!(create_plugin_in(dir.path(), "dup", "sh", "").is_err());
+        create_widget_in(dir.path(), "dup", "sh", "").unwrap();
+        assert!(create_widget_in(dir.path(), "dup", "sh", "").is_err());
     }
 
     #[test]
@@ -815,7 +765,7 @@ has_compact = true
         make_file(&dir, "gone.sh");
         make_file(&dir, "gone.toml");
 
-        delete_plugin_in(dir.path(), "gone").unwrap();
+        delete_widget_in(dir.path(), "gone").unwrap();
 
         assert!(!dir.path().join("gone.sh").exists());
         assert!(!dir.path().join("gone.toml").exists());
@@ -825,29 +775,29 @@ has_compact = true
     fn delete_plugin_noop_on_missing() {
         let dir = TempDir::new().unwrap();
         // Must not error when nothing exists
-        delete_plugin_in(dir.path(), "ghost").unwrap();
+        delete_widget_in(dir.path(), "ghost").unwrap();
     }
 
-    // ---- write_plugin_meta_in -----------------------------------------------
+    // ---- write_widget_meta_in -----------------------------------------------
 
     #[test]
     fn write_plugin_meta_roundtrips() {
         let dir = TempDir::new().unwrap();
-        let meta = PluginMeta {
+        let meta = WidgetMeta {
             name: "myplugin".to_string(),
             description: "does stuff".to_string(),
             components: vec!["a".to_string(), "b".to_string()],
             has_compact: true,
         };
-        write_plugin_meta_in(dir.path(), "myplugin", &meta).unwrap();
+        write_widget_meta_in(dir.path(), "myplugin", &meta).unwrap();
 
-        let metas = list_plugin_metas_in(dir.path());
+        let metas = list_widget_metas_in(dir.path());
         // No script file exists, so list returns empty — verify TOML is parseable directly
         let raw = fs::read_to_string(dir.path().join("myplugin.toml")).unwrap();
         let table: toml::Table = raw.parse().unwrap();
         assert_eq!(table["description"].as_str().unwrap(), "does stuff");
         assert!(table["has_compact"].as_bool().unwrap());
-        // list_plugin_metas_in won't include it (no script), but the TOML is valid
+        // list_widget_metas_in won't include it (no script), but the TOML is valid
         assert!(metas.is_empty());
     }
 

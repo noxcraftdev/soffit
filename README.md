@@ -153,11 +153,11 @@ use_unicode_text = false   # plain text instead of ¹·²·³ / ₛₒₙₙₑ�
 
 ## Custom Widgets
 
-Drop scripts in `~/.config/soffit/plugins/`:
+Drop scripts in `~/.config/soffit/widgets/`:
 
 ```bash
 #!/bin/bash
-# ~/.config/soffit/plugins/weather.sh
+# ~/.config/soffit/widgets/weather.sh
 INPUT=$(cat)
 COMPACT=$(echo "$INPUT" | python3 -c "import json,sys; print(json.load(sys.stdin).get('config',{}).get('compact',False))" 2>/dev/null)
 
@@ -171,7 +171,7 @@ else
 fi
 ```
 
-Make it executable: `chmod +x ~/.config/soffit/plugins/weather.sh`
+Make it executable: `chmod +x ~/.config/soffit/widgets/weather.sh`
 
 ### Widget input format
 
@@ -227,7 +227,7 @@ Or return plain text:
 Create a `.toml` sidecar for richer editor integration:
 
 ```toml
-# ~/.config/soffit/plugins/weather.toml
+# ~/.config/soffit/widgets/weather.toml
 description = "Current weather conditions"
 components = ["temp", "condition"]
 has_compact = true
@@ -303,7 +303,7 @@ soffit uninstall last-msg
 soffit install noxcraftdev/soffit-plugins --force
 ```
 
-Installed widgets land in `~/.config/soffit/plugins/` and are immediately available.
+Installed widgets land in `~/.config/soffit/widgets/` and are immediately available.
 
 ### Creating a widget repository
 

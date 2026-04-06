@@ -4,10 +4,6 @@ use anyhow::{anyhow, bail};
 
 use crate::{paths, plugin, widgets};
 
-fn curl_fetch(url: &str) -> anyhow::Result<Vec<u8>> {
-    crate::http::curl_fetch(url)
-}
-
 /// Returns (owner, repo, name_opt).
 fn parse_source(s: &str) -> anyhow::Result<(String, String, Option<String>)> {
     let parts: Vec<&str> = s.splitn(3, '/').collect();
@@ -24,8 +20,8 @@ struct RepoFile {
     path: String,
 }
 
-fn list_repo_plugins(owner: &str, repo: &str) -> anyhow::Result<Vec<RepoFile>> {
-    // Try root first, then /plugins subdirectory.
+fn list_repo_widgets(owner: &str, repo: &str) -> anyhow::Result<Vec<RepoFile>> {
+    // Try root first, then /plugins subdirectory (legacy repo layout).
     let entries =
         try_list_dir_raw(owner, repo, "").or_else(|_| try_list_dir_raw(owner, repo, "plugins"))?;
 
@@ -45,7 +41,7 @@ fn list_repo_plugins(owner: &str, repo: &str) -> anyhow::Result<Vec<RepoFile>> {
         })
         .collect();
 
-    // If no script files were found at root, check for per-plugin subdirectories.
+    // If no script files were found at root, check for per-widget subdirectories.
     if files.is_empty() {
         for item in &entries {
             let kind = item
@@ -83,7 +79,7 @@ fn try_list_dir_raw(
     } else {
         format!("https://api.github.com/repos/{owner}/{repo}/contents/{subdir}")
     };
-    let bytes = curl_fetch(&url)?;
+    let bytes = crate::http::curl_fetch(&url)?;
     let arr: serde_json::Value = serde_json::from_slice(&bytes)?;
     arr.as_array()
         .ok_or_else(|| anyhow!("expected array from GitHub API"))
@@ -122,7 +118,7 @@ pub(crate) fn install_one_in(
     }
 
     if already_exists && force {
-        plugin::delete_plugin_in(dir, name)?;
+        plugin::delete_widget_in(dir, name)?;
     }
 
     // Write script.
@@ -149,7 +145,7 @@ pub(crate) fn raw_url(owner: &str, repo: &str, path: &str) -> String {
 }
 
 fn fetch_optional(url: &str) -> Option<Vec<u8>> {
-    curl_fetch(url).ok().filter(|b| !b.is_empty())
+    crate::http::curl_fetch(url).ok().filter(|b| !b.is_empty())
 }
 
 pub fn run(source: &str, force: bool) -> anyhow::Result<()> {
@@ -157,11 +153,11 @@ pub fn run(source: &str, force: bool) -> anyhow::Result<()> {
         return crate::marketplace::resolve_and_install(source, force);
     }
     let (owner, repo, name_opt) = parse_source(source)?;
-    let plugins_dir = paths::plugins_dir();
+    let widgets_dir = paths::widgets_dir();
 
     match name_opt {
-        Some(name) => install_single(&owner, &repo, &name, &plugins_dir, force),
-        None => install_all(&owner, &repo, &plugins_dir, force),
+        Some(name) => install_single(&owner, &repo, &name, &widgets_dir, force),
+        None => install_all(&owner, &repo, &widgets_dir, force),
     }
 }
 
@@ -172,7 +168,7 @@ fn install_single(
     dir: &Path,
     force: bool,
 ) -> anyhow::Result<()> {
-    // Try root then per-plugin subdir, .sh before .py.
+    // Try root then per-widget subdir, .sh before .py.
     let (script, ext, prefix) = if let Some(bytes) =
         fetch_optional(&raw_url(owner, repo, &format!("{name}.sh")))
     {
@@ -202,7 +198,7 @@ fn install_single(
 }
 
 fn install_all(owner: &str, repo: &str, dir: &Path, force: bool) -> anyhow::Result<()> {
-    let files = list_repo_plugins(owner, repo)?;
+    let files = list_repo_widgets(owner, repo)?;
     if files.is_empty() {
         bail!("no .sh/.py widgets found in {owner}/{repo}");
     }
@@ -222,7 +218,7 @@ fn install_all(owner: &str, repo: &str, dir: &Path, force: bool) -> anyhow::Resu
             .unwrap_or("sh")
             .to_string();
 
-        let script = match curl_fetch(&raw_url(owner, repo, &file.path)) {
+        let script = match crate::http::curl_fetch(&raw_url(owner, repo, &file.path)) {
             Ok(b) => b,
             Err(e) => {
                 eprintln!("skip {stem}: {e}");

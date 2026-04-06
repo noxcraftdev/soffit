@@ -18,7 +18,7 @@ use crate::config::StatuslineConfig;
 use crate::fmt::*;
 use crate::paths;
 use crate::theme::{ansi, BarStyle, IconsConfig, ThemePalette, ITALIC, NO_ITALIC, RESET};
-use crate::types::{InsightCounts, SessionSnapshot, StdinData, WidgetConfig};
+use crate::types::{SessionSnapshot, StdinData, WidgetConfig};
 
 pub const AVAILABLE: &[&str] = &[
     "context_bar",
@@ -130,7 +130,6 @@ const COMPONENTS_VERSION: &[&str] = &["update", "version", "model"];
 const COMPONENTS_CONTEXT_BAR: &[&str] = &["bar", "pct", "tokens"];
 const COMPONENTS_COST: &[&str] = &["session", "today", "week"];
 const COMPONENTS_GIT: &[&str] = &["branch", "staged", "modified", "repo", "worktree"];
-const COMPONENTS_INSIGHTS: &[&str] = &["strategies", "priorities", "insights", "notes", "pending"];
 const COMPONENTS_QUOTA: &[&str] = &["five_hour", "seven_day"];
 
 fn active_components<'a>(requested: &'a [String], defaults: &'a [&'a str]) -> Vec<&'a str> {
@@ -304,15 +303,7 @@ pub fn render_context_bar(
 
 fn responsive_bar_width(terminal_width: u16, max_width: usize, min_width: usize) -> usize {
     let available = terminal_width as usize;
-    let mut w = max_width;
-    while w > min_width {
-        let estimated = w + 20;
-        if estimated <= available {
-            return w;
-        }
-        w -= 1;
-    }
-    min_width
+    max_width.min(available.saturating_sub(20)).max(min_width)
 }
 
 // --- Duration widget ---
@@ -324,15 +315,20 @@ pub fn render_duration(
 ) -> Option<String> {
     let p = &ctx.palette;
     let ms = ctx.data.cost.as_ref()?.total_duration_ms?;
+    let color = if ms >= 7_200_000 {
+        ansi(p.danger)
+    } else if ms >= 3_600_000 {
+        ansi(p.warning)
+    } else if ms >= 1_800_000 {
+        ansi(p.muted)
+    } else {
+        ansi(p.subtle)
+    };
     if compact {
-        Some(format!("{}{}{RESET}", ansi(p.subtle), fmt_duration(ms)))
+        Some(format!("{color}{}{RESET}", fmt_duration(ms)))
     } else {
         let icon = ctx.icons.duration.as_deref().unwrap_or("\u{23f1} ");
-        Some(format!(
-            "{}{icon}{}{RESET}",
-            ansi(p.subtle),
-            fmt_duration(ms)
-        ))
+        Some(format!("{color}{icon}{}{RESET}", fmt_duration(ms)))
     }
 }
 
@@ -636,129 +632,6 @@ fn compute_git_segment(
     }
 }
 
-// --- Insights widget ---
-
-pub fn render_insights(
-    ctx: &WidgetContext,
-    compact: bool,
-    components: &[String],
-) -> Option<String> {
-    let p = &ctx.palette;
-    let insights_path =
-        dirs::home_dir()?.join(".local/share/jarvis/insights/pending-insights.json");
-    let strategies_path =
-        dirs::home_dir()?.join(".local/share/jarvis/strategies/active-strategies.json");
-
-    let mut strategies_n = 0usize;
-    let mut priorities_n = 0usize;
-    let mut insights_n = 0usize;
-    let mut notes_n = 0usize;
-    let mut pending_n = 0usize;
-
-    if let Ok(raw) = std::fs::read_to_string(&strategies_path) {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
-            strategies_n = v.as_array().map(|a| a.len()).unwrap_or(0);
-        }
-    }
-
-    if let Ok(raw) = std::fs::read_to_string(&insights_path) {
-        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw) {
-            if let Some(arr) = parsed.as_array() {
-                let c = InsightCounts::from_json(arr);
-                priorities_n = c.red as usize;
-                insights_n = c.orange as usize;
-                notes_n = c.green as usize;
-                pending_n = c.pending_actions as usize;
-            }
-        }
-    }
-
-    let mut parts: Vec<String> = Vec::new();
-    for comp in active_components(components, COMPONENTS_INSIGHTS) {
-        match comp {
-            "strategies" if strategies_n > 0 => {
-                if compact {
-                    parts.push(format!("{}\u{1f52d}{strategies_n}{RESET}", ansi(p.accent)));
-                } else {
-                    let label = if strategies_n == 1 {
-                        "strategy"
-                    } else {
-                        "strategies"
-                    };
-                    parts.push(format!(
-                        "{}\u{1f52d} {strategies_n} {label}{RESET}",
-                        ansi(p.accent)
-                    ));
-                }
-            }
-            "priorities" if priorities_n > 0 => {
-                if compact {
-                    parts.push(format!("{}\u{1f3af}{priorities_n}{RESET}", ansi(p.danger)));
-                } else {
-                    let label = if priorities_n == 1 {
-                        "priority"
-                    } else {
-                        "priorities"
-                    };
-                    parts.push(format!(
-                        "{}\u{1f3af} {priorities_n} {label}{RESET}",
-                        ansi(p.danger)
-                    ));
-                }
-            }
-            "insights" if insights_n > 0 => {
-                if compact {
-                    parts.push(format!("{}\u{1f4a1}{insights_n}{RESET}", ansi(p.warning)));
-                } else {
-                    let label = if insights_n == 1 {
-                        "insight"
-                    } else {
-                        "insights"
-                    };
-                    parts.push(format!(
-                        "{}\u{1f4a1} {insights_n} {label}{RESET}",
-                        ansi(p.warning)
-                    ));
-                }
-            }
-            "notes" if notes_n > 0 => {
-                if compact {
-                    parts.push(format!("{}\u{1f4cb}{notes_n}{RESET}", ansi(p.success)));
-                } else {
-                    let label = if notes_n == 1 { "note" } else { "notes" };
-                    parts.push(format!(
-                        "{}\u{1f4cb} {notes_n} {label}{RESET}",
-                        ansi(p.success)
-                    ));
-                }
-            }
-            "pending" if pending_n > 0 => {
-                if compact {
-                    parts.push(format!("{}\u{23f3}{pending_n}{RESET}", ansi(p.warning)));
-                } else {
-                    parts.push(format!(
-                        "{}\u{23f3} {pending_n} pending{RESET}",
-                        ansi(p.warning)
-                    ));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    if parts.is_empty() {
-        return None;
-    }
-
-    let sep = if compact { " " } else { " | " };
-    let body = parts.join(sep);
-    if compact {
-        Some(body)
-    } else {
-        Some(format!("{body} /brief"))
-    }
-}
-
 // --- Vim widget ---
 
 pub fn render_vim(ctx: &WidgetContext, _compact: bool, _components: &[String]) -> Option<String> {
@@ -990,14 +863,6 @@ fn dispatch_widget(
     let effective_ctx: &WidgetContext = if needs_merge {
         let mut effective_palette = ctx.palette.clone();
 
-        // Apply palette default roles for all color slots
-        if let Some(wref) = wref {
-            for slot in wref.color_slots {
-                let idx = ctx.palette.resolve(slot.palette_role);
-                effective_palette.set_role(slot.palette_role, idx);
-            }
-        }
-
         // Explicit per-widget color overrides take precedence over palette defaults
         if let Some(c) = cfg {
             if let Some(ref theme_map) = c.theme {
@@ -1068,15 +933,13 @@ fn dispatch_widget(
             &effective_ctx.palette,
             &effective_ctx.icons,
         ),
-        "insights" => render_insights(effective_ctx, compact, components),
         "vim" => render_vim(effective_ctx, compact, components),
         "agent" => render_agent(effective_ctx, compact, components),
         "quota" => render_quota(effective_ctx, compact, components),
         "session" => render_session(effective_ctx, compact, components),
         other => {
-            // Build palette-aware theme for this plugin, then apply per-widget overrides.
             let wmeta = crate::plugin::widget_meta(other);
-            let mut plugin_palette = ctx.palette.clone();
+            let mut widget_palette = ctx.palette.clone();
             if let (Some(ref wmeta), Some(c)) = (&wmeta, cfg) {
                 if let Some(ref theme_map) = c.theme {
                     for slot in &wmeta.theme_slots {
@@ -1086,13 +949,13 @@ fn dispatch_widget(
                                 crate::types::ThemeValue::Role(r) => ctx.palette.resolve(*r),
                             };
                             if let Some(role) = slot.palette_role {
-                                plugin_palette.set_role(role, idx);
+                                widget_palette.set_role(role, idx);
                             }
                         }
                     }
                 }
             }
-            let plugin_icons: serde_json::Value = {
+            let widget_icons: serde_json::Value = {
                 let user_icons = cfg.and_then(|c| c.icons.as_ref());
                 let mut map = serde_json::Map::new();
                 if let Some(ref wmeta) = wmeta {
@@ -1106,26 +969,26 @@ fn dispatch_widget(
                 }
                 serde_json::Value::Object(map)
             };
-            let plugin_input = serde_json::json!({
+            let widget_input = serde_json::json!({
                 "data": effective_ctx.data,
                 "config": {
                     "compact": compact,
                     "components": components,
                     "palette": {
-                        "primary": ansi(plugin_palette.primary),
-                        "accent": ansi(plugin_palette.accent),
-                        "success": ansi(plugin_palette.success),
-                        "warning": ansi(plugin_palette.warning),
-                        "danger": ansi(plugin_palette.danger),
-                        "muted": ansi(plugin_palette.muted),
-                        "subtle": ansi(plugin_palette.subtle),
+                        "primary": ansi(widget_palette.primary),
+                        "accent": ansi(widget_palette.accent),
+                        "success": ansi(widget_palette.success),
+                        "warning": ansi(widget_palette.warning),
+                        "danger": ansi(widget_palette.danger),
+                        "muted": ansi(widget_palette.muted),
+                        "subtle": ansi(widget_palette.subtle),
                         "reset": RESET,
                     },
-                    "icons": plugin_icons,
+                    "icons": widget_icons,
                     "bar_style": effective_ctx.bar_style.to_string(),
                 }
             });
-            crate::plugin::run_plugin(other, &plugin_input.to_string())
+            crate::plugin::run_widget(other, &widget_input.to_string())
         }
     }
 }
@@ -1153,17 +1016,17 @@ pub fn render_line(
 pub fn render(name: &str) -> anyhow::Result<()> {
     use anyhow::bail;
 
-    let plugins = crate::plugin::list_plugins();
+    let custom_widgets = crate::plugin::list_custom_widgets();
     if name == "list" {
         for w in AVAILABLE {
             println!("{w}");
         }
-        for p in &plugins {
-            println!("{p} [plugin]");
+        for p in &custom_widgets {
+            println!("{p} [custom]");
         }
         return Ok(());
     }
-    if !AVAILABLE.contains(&name) && !plugins.iter().any(|p| p == name) {
+    if !AVAILABLE.contains(&name) && !custom_widgets.iter().any(|p| p == name) {
         bail!(
             "unknown widget '{name}'. Available: {}",
             AVAILABLE.join(", ")
@@ -1379,5 +1242,42 @@ mod tests {
         let result = render_agent(&ctx, false, &[]).unwrap();
         assert!(result.contains(">> test-agent"));
         assert!(!result.contains('\u{276f}'));
+    }
+
+    #[test]
+    fn duration_per_widget_color_override() {
+        use crate::types::{CostInfo, ThemeValue, WidgetConfig};
+
+        let data = StdinData {
+            cost: Some(CostInfo {
+                total_duration_ms: Some(600_000), // 10 min -> subtle threshold
+                total_cost_usd: None,
+            }),
+            ..Default::default()
+        };
+        let config = StatuslineConfig::default();
+        let ctx = build_context(data, &config);
+        let default_subtle = ctx.palette.subtle;
+
+        // Without override: uses default subtle color
+        let result = dispatch_widget("duration", &ctx, &config.widgets).unwrap();
+        assert!(
+            result.contains(&format!("\x1b[38;5;{default_subtle}m")),
+            "expected default subtle color {default_subtle} in: {result}"
+        );
+
+        // With override: time slot -> color 196
+        let mut widgets = config.widgets.clone();
+        let wc = widgets.entry("duration".into()).or_default();
+        wc.theme = Some(
+            [("time".to_string(), ThemeValue::Custom(196))]
+                .into_iter()
+                .collect(),
+        );
+        let result = dispatch_widget("duration", &ctx, &widgets).unwrap();
+        assert!(
+            result.contains("\x1b[38;5;196m"),
+            "expected overridden color 196 in: {result}"
+        );
     }
 }

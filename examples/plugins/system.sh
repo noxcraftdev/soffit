@@ -1,8 +1,8 @@
 #!/bin/bash
-# Example soffit plugin: system stats (CPU load, memory usage, uptime)
+# Example soffit widget: system stats (CPU load, memory usage, uptime)
 #
-# Uses theme colors and icons from soffit config for customizable appearance.
-# Memory color adapts to usage: green < 50%, orange 50-80%, red >= 80%.
+# Uses palette colors and icons from soffit config for customizable appearance.
+# Memory color adapts to usage: success < 50%, warning 50-80%, danger >= 80%.
 
 INPUT=$(cat)
 
@@ -10,17 +10,17 @@ eval "$(echo "$INPUT" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 cfg = d.get('config', {})
-theme = cfg.get('theme', {})
+palette = cfg.get('palette', {})
 icons = cfg.get('icons', {})
 print(f'COMPACT={cfg.get(\"compact\", False)}')
 sep = \",\"
 print(f'COMPONENTS=\"{sep.join(cfg.get(\"components\", []))}\"')
-print(f'DIM=\"{theme.get(\"dim\", \"\")}\"')
-print(f'LGRAY=\"{theme.get(\"lgray\", \"\")}\"')
-print(f'GREEN=\"{theme.get(\"green\", \"\")}\"')
-print(f'ORANGE=\"{theme.get(\"orange\", \"\")}\"')
-print(f'RED=\"{theme.get(\"red\", \"\")}\"')
-print(f'RESET=\"{theme.get(\"reset\", \"\")}\"')
+print(f'DIM=\"{palette.get(\"muted\", \"\")}\"')
+print(f'LGRAY=\"{palette.get(\"subtle\", \"\")}\"')
+print(f'GREEN=\"{palette.get(\"success\", \"\")}\"')
+print(f'ORANGE=\"{palette.get(\"warning\", \"\")}\"')
+print(f'RED=\"{palette.get(\"danger\", \"\")}\"')
+print(f'RESET=\"{palette.get(\"reset\", \"\")}\"')
 print(f'ICON_CPU=\"{icons.get(\"cpu\", \"\u26a1\")}\"')
 print(f'ICON_MEM=\"{icons.get(\"mem\", \"\U0001f9e0\")}\"')
 print(f'ICON_UP=\"{icons.get(\"uptime\", \"\u231b\")}\"')
