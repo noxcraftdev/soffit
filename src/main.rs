@@ -8,6 +8,7 @@ mod install;
 mod marketplace;
 mod paths;
 mod plugin;
+mod presets;
 mod render;
 mod setup;
 mod theme;
@@ -63,11 +64,19 @@ enum Cli {
     },
     /// Update soffit to the latest version
     Update,
+    /// Apply or list widget presets
+    Preset {
+        #[command(subcommand)]
+        cmd: presets::PresetCmd,
+    },
     /// Configure Claude Code to use soffit as the statusline
     Setup,
     /// Fetch latest soffit version from GitHub (hidden, used internally)
     #[command(hide = true)]
     FetchSelfVersion,
+    /// Install default widgets from registry (hidden, used internally)
+    #[command(hide = true)]
+    InstallDefaults,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -78,9 +87,6 @@ fn main() -> anyhow::Result<()> {
         #[cfg(feature = "desktop")]
         Cli::Edit => edit::run(),
         Cli::Widgets => {
-            for w in widgets::AVAILABLE {
-                println!("{w}");
-            }
             for p in plugin::list_custom_widgets() {
                 println!("{p}");
             }
@@ -92,8 +98,10 @@ fn main() -> anyhow::Result<()> {
         Cli::Install { source, force } => install::run(&source, force),
         Cli::Uninstall { name } => plugin::delete_widget(&name),
         Cli::Marketplace { cmd } => marketplace::run(cmd),
+        Cli::Preset { cmd } => presets::run(cmd),
         Cli::Update => update::run(),
         Cli::FetchSelfVersion => fetch_self_version(),
+        Cli::InstallDefaults => marketplace::install_defaults(),
         Cli::Setup => setup::run(),
     }
 }
@@ -258,7 +266,13 @@ fn refresh_cost(sid: &str) -> anyhow::Result<()> {
 
     let target = crate::config::StatuslineConfig::load()
         .ok()
-        .and_then(|c| c.weekly_budget)
+        .and_then(|c| {
+            c.widgets
+                .get("cost")
+                .and_then(|wc| wc.settings.as_ref())
+                .and_then(|s| s.get("weekly_budget"))
+                .and_then(|v| v.as_f64())
+        })
         .unwrap_or(300.0);
 
     cache::write_cache(

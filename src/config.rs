@@ -23,7 +23,6 @@ pub struct StatuslineConfig {
     pub editor_font: Option<String>,
     pub editor_width: Option<f64>,
     pub editor_height: Option<f64>,
-    pub weekly_budget: Option<f64>,
 }
 
 impl Default for StatuslineConfig {
@@ -47,7 +46,6 @@ impl Default for StatuslineConfig {
             editor_font: None,
             editor_width: None,
             editor_height: None,
-            weekly_budget: None,
         }
     }
 }
@@ -107,7 +105,6 @@ impl StatuslineConfig {
                 .map(|s| s.to_string()),
             editor_width: table.get("editor_width").and_then(|v| v.as_float()),
             editor_height: table.get("editor_height").and_then(|v| v.as_float()),
-            weekly_budget: table.get("weekly_budget").and_then(|v| v.as_float()),
         })
     }
 
@@ -166,6 +163,12 @@ impl StatuslineConfig {
                     toml::Value::try_from(bar_style.clone())?,
                 );
             }
+            if let Some(ref settings) = wc.settings {
+                wc_table.insert(
+                    "settings".to_string(),
+                    toml::Value::try_from(settings.clone())?,
+                );
+            }
             widgets_table.insert(name.to_string(), toml::Value::Table(wc_table));
         }
         table.insert(
@@ -215,10 +218,29 @@ impl StatuslineConfig {
             table.remove("editor_height");
         }
 
-        if let Some(b) = self.weekly_budget {
-            table.insert("weekly_budget".to_string(), toml::Value::Float(b));
-        } else {
-            table.remove("weekly_budget");
+        // Migrate legacy weekly_budget into cost widget settings
+        if let Some(budget) = table.remove("weekly_budget").and_then(|v| v.as_float()) {
+            let widgets = table
+                .entry("statusline_widgets")
+                .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+                .as_table_mut();
+            if let Some(widgets) = widgets {
+                let cost = widgets
+                    .entry("cost")
+                    .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+                    .as_table_mut();
+                if let Some(cost) = cost {
+                    let settings = cost
+                        .entry("settings")
+                        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+                        .as_table_mut();
+                    if let Some(settings) = settings {
+                        settings
+                            .entry("weekly_budget")
+                            .or_insert(toml::Value::Float(budget));
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -413,6 +435,25 @@ mod tests {
             .and_then(|c| c.icons.as_ref())
             .expect("per-widget icons");
         assert_eq!(icons2.get("cost").map(|s| s.as_str()), Some("$$$"));
+        Ok(())
+    }
+
+    #[test]
+    fn weekly_budget_migrated_to_cost_settings() -> Result<()> {
+        let mut f = NamedTempFile::new()?;
+        writeln!(f, "weekly_budget = 500.0\nstatusline_line1 = [\"cost\"]")?;
+        let config = load_from_path(f.path())?;
+        save_to_path(&config, f.path())?;
+        let raw = fs::read_to_string(f.path())?;
+        let table: toml::Table = toml::from_str(&raw)?;
+        assert!(
+            !table.contains_key("weekly_budget"),
+            "Legacy top-level weekly_budget should be removed"
+        );
+        let budget = table["statusline_widgets"]["cost"]["settings"]["weekly_budget"]
+            .as_float()
+            .expect("budget as float");
+        assert!((budget - 500.0).abs() < f64::EPSILON);
         Ok(())
     }
 

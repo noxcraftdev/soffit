@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail};
 
-use crate::{paths, plugin, widgets};
+use crate::{paths, plugin};
 
 /// Returns (owner, repo, name_opt).
 fn parse_source(s: &str) -> anyhow::Result<(String, String, Option<String>)> {
@@ -96,10 +96,6 @@ pub(crate) fn install_one_in(
 ) -> anyhow::Result<()> {
     if name.contains('/') || name.contains('\\') || name.starts_with('.') || name.contains('\0') {
         bail!("unsafe widget name: '{name}'");
-    }
-
-    if widgets::AVAILABLE.contains(&name) {
-        bail!("'{name}' conflicts with a built-in widget");
     }
 
     std::fs::create_dir_all(dir)?;
@@ -330,11 +326,10 @@ mod tests {
     }
 
     #[test]
-    fn install_one_rejects_builtin_collision() {
+    fn install_one_accepts_any_name() {
         let dir = TempDir::new().unwrap();
-        // "git" is in widgets::AVAILABLE
-        let err = install_one_in(dir.path(), "git", "sh", b"#!/bin/sh", None, false).unwrap_err();
-        assert!(err.to_string().contains("built-in widget"));
+        install_one_in(dir.path(), "git", "sh", b"#!/bin/sh", None, false).unwrap();
+        assert!(dir.path().join("git.sh").exists());
     }
 
     #[test]

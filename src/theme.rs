@@ -6,12 +6,6 @@ pub fn ansi(idx: u8) -> String {
 }
 
 pub const RESET: &str = "\x1b[0m";
-pub const ITALIC: &str = "\x1b[3m";
-pub const NO_ITALIC: &str = "\x1b[23m";
-pub const DIM_SUCCESS: &str = "\x1b[38;5;65m";
-pub const DIM_WARNING: &str = "\x1b[38;5;130m";
-pub const DIM_DANGER: &str = "\x1b[38;5;131m";
-pub const DIM_PRIMARY: &str = "\x1b[38;5;67m";
 
 /// Semantic roles for a theme palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

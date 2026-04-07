@@ -45,6 +45,21 @@ pub fn join_segments(segments: &[String], separator: &str, max_width: u16) -> St
 }
 
 pub fn run() -> Result<()> {
+    // Auto-install default widgets if core widgets are missing.
+    // Spawned as a background process so it doesn't block rendering.
+    let widgets_dir = crate::paths::widgets_dir();
+    let needs_defaults =
+        !widgets_dir.join("context_bar.sh").exists() && !widgets_dir.join("context_bar").exists();
+    if needs_defaults {
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe)
+                .arg("install-defaults")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
+    }
+
     let config = StatuslineConfig::load()?;
     let data = read_stdin_nonblocking();
     let ctx = widgets::build_context(data, &config);

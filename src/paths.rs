@@ -33,14 +33,6 @@ pub fn version_lock() -> &'static str {
     "/tmp/soffit-version-fetch.lock"
 }
 
-pub fn git_cache(cwd_hash: &str) -> String {
-    format!("/tmp/soffit-git-{cwd_hash}")
-}
-
-pub fn sid_cache() -> &'static str {
-    "/tmp/soffit-sids"
-}
-
 pub fn context_pct_file(sid: &str) -> String {
     format!("/tmp/claude-context-pct-{sid}")
 }

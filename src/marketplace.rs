@@ -5,7 +5,7 @@ use anyhow::{bail, Result};
 use crate::paths;
 
 pub const DEFAULT_SOURCE_NAME: &str = "default";
-pub const DEFAULT_SOURCE_REPO: &str = "noxcraftdev/soffit-marketplace";
+pub const DEFAULT_SOURCE_REPO: &str = "noxcraftdev/soffit-widgets";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarketplaceSource {
@@ -129,6 +129,9 @@ pub struct RegistryEntry {
 struct RegistryRoot {
     #[serde(alias = "plugins")]
     widgets: Vec<RegistryEntry>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    defaults: Vec<String>,
 }
 
 pub(crate) fn fetch_registry(repo: &str) -> anyhow::Result<Vec<RegistryEntry>> {
@@ -202,6 +205,62 @@ pub fn resolve_and_install(name: &str, force: bool) -> anyhow::Result<()> {
     anyhow::bail!(
         "widget '{name}' not found in any registered source. Use 'soffit marketplace list' to see sources or 'soffit install owner/repo/name' to install directly."
     )
+}
+
+/// Fetch the default source's registry and install any widgets listed in `defaults`
+/// that are not already installed.
+pub fn install_defaults() -> anyhow::Result<()> {
+    let widgets_dir = crate::paths::widgets_dir();
+    let cache_path = {
+        let (owner, repo_name) = split_owner_repo(DEFAULT_SOURCE_REPO)?;
+        crate::paths::marketplace_registry_cache(owner, repo_name)
+    };
+
+    let entries = fetch_registry(DEFAULT_SOURCE_REPO)?;
+
+    let defaults: Vec<String> = crate::cache::read_stale(&cache_path)
+        .and_then(|cached| {
+            let root: RegistryRoot = serde_json::from_str(&cached).ok()?;
+            Some(root.defaults)
+        })
+        .unwrap_or_default();
+
+    for name in &defaults {
+        if crate::plugin::widget_source_path(name).is_some() {
+            continue;
+        }
+        let Some(entry) = entries.iter().find(|e| &e.name == name) else {
+            continue;
+        };
+        let repo = if entry.repo.is_empty() {
+            DEFAULT_SOURCE_REPO
+        } else {
+            &entry.repo
+        };
+        let Ok((owner, repo_name)) = split_owner_repo(repo) else {
+            continue;
+        };
+        let file = if entry.file.is_empty() {
+            format!("{name}.sh")
+        } else {
+            entry.file.clone()
+        };
+        let ext = if file.ends_with(".py") { "py" } else { "sh" };
+        let Ok(script_bytes) =
+            crate::http::curl_fetch(&crate::install::raw_url(owner, repo_name, &file))
+        else {
+            continue;
+        };
+        let toml_file = {
+            let stem = file.trim_end_matches(".sh").trim_end_matches(".py");
+            format!("{stem}.toml")
+        };
+        let toml_url = crate::install::raw_url(owner, repo_name, &toml_file);
+        let toml_opt = crate::http::curl_fetch(&toml_url).ok();
+        let _ =
+            crate::install::install_one_in(&widgets_dir, name, ext, &script_bytes, toml_opt, false);
+    }
+    Ok(())
 }
 
 #[derive(clap::Subcommand)]
@@ -309,7 +368,7 @@ pub fn run(cmd: MarketplaceCmd) -> anyhow::Result<()> {
     }
 }
 
-fn split_owner_repo(repo: &str) -> anyhow::Result<(&str, &str)> {
+pub fn split_owner_repo(repo: &str) -> anyhow::Result<(&str, &str)> {
     let mut parts = repo.splitn(2, '/');
     match (parts.next(), parts.next()) {
         (Some(owner), Some(repo_name)) if !owner.is_empty() && !repo_name.is_empty() => {

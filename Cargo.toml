@@ -1,6 +1,6 @@
 [package]
 name = "soffit"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Customizable statusline manager for Claude Code with desktop editor and custom widget support"
 license = "MIT"

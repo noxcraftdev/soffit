@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::paths;
-use crate::widgets;
 
 fn list_custom_widgets_in(dir: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -21,10 +20,6 @@ fn list_custom_widgets_in(dir: &Path) -> Vec<String> {
             let stem = path.file_stem()?.to_str()?.to_string();
             let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("");
             if !matches!(ext, "sh" | "py" | "") {
-                return None;
-            }
-            // Prevent shadowing built-in widgets
-            if widgets::AVAILABLE.contains(&stem.as_str()) {
                 return None;
             }
             Some(stem)
@@ -105,9 +100,39 @@ pub struct OwnedIconSlot {
 }
 
 #[derive(Debug, Clone)]
+pub enum OwnedSettingType {
+    Int { min: Option<i64>, max: Option<i64> },
+    Float { min: Option<f64>, max: Option<f64> },
+    Bool,
+    Str,
+    Enum { options: Vec<String> },
+}
+
+#[derive(Debug, Clone)]
+pub struct OwnedSettingSlot {
+    pub key: String,
+    pub label: String,
+    pub setting_type: OwnedSettingType,
+    pub default_value: serde_json::Value,
+}
+
+#[derive(Debug, Clone)]
 pub struct OwnedWidgetMeta {
     pub theme_slots: Vec<OwnedThemeSlot>,
     pub icon_slots: Vec<OwnedIconSlot>,
+    pub setting_slots: Vec<OwnedSettingSlot>,
+}
+
+fn toml_to_json(v: &toml::Value) -> serde_json::Value {
+    match v {
+        toml::Value::String(s) => serde_json::Value::String(s.clone()),
+        toml::Value::Integer(n) => serde_json::Value::Number((*n).into()),
+        toml::Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        toml::Value::Boolean(b) => serde_json::Value::Bool(*b),
+        _ => serde_json::Value::Null,
+    }
 }
 
 fn palette_role_from_name(s: &str) -> Option<crate::theme::PaletteRole> {
@@ -127,27 +152,6 @@ fn legacy_field_to_role(s: &str) -> Option<crate::theme::PaletteRole> {
 }
 
 pub fn widget_meta(name: &str) -> Option<OwnedWidgetMeta> {
-    use crate::edit::widget_reference::widget_ref;
-    if let Some(wref) = widget_ref(name) {
-        return Some(OwnedWidgetMeta {
-            theme_slots: wref
-                .color_slots
-                .iter()
-                .map(|s| OwnedThemeSlot {
-                    key: s.key.to_string(),
-                    palette_role: Some(s.palette_role),
-                })
-                .collect(),
-            icon_slots: wref
-                .icon_slots
-                .iter()
-                .map(|s| OwnedIconSlot {
-                    key: s.key.to_string(),
-                    default_value: s.default_value.to_string(),
-                })
-                .collect(),
-        });
-    }
     let dir = crate::paths::widgets_dir();
     let script_exists = [name, &format!("{name}.sh")[..], &format!("{name}.py")[..]]
         .iter()
@@ -156,7 +160,7 @@ pub fn widget_meta(name: &str) -> Option<OwnedWidgetMeta> {
         return None;
     }
     let toml_path = dir.join(format!("{name}.toml"));
-    let (theme_slots, icon_slots) = std::fs::read_to_string(&toml_path)
+    let (theme_slots, icon_slots, setting_slots) = std::fs::read_to_string(&toml_path)
         .ok()
         .and_then(|raw| raw.parse::<toml::Table>().ok())
         .map(|table| {
@@ -222,12 +226,65 @@ pub fn widget_meta(name: &str) -> Option<OwnedWidgetMeta> {
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
-            (ts, is)
+            let ss = table
+                .get("settings")
+                .and_then(|v| v.as_table())
+                .map(|settings_table| {
+                    settings_table
+                        .iter()
+                        .filter_map(|(key, val)| {
+                            let sub = val.as_table()?;
+                            let type_str =
+                                sub.get("type").and_then(|v| v.as_str()).unwrap_or("string");
+                            let label = sub
+                                .get("label")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or(key.as_str())
+                                .to_string();
+                            let setting_type = match type_str {
+                                "int" => OwnedSettingType::Int {
+                                    min: sub.get("min").and_then(|v| v.as_integer()),
+                                    max: sub.get("max").and_then(|v| v.as_integer()),
+                                },
+                                "float" => OwnedSettingType::Float {
+                                    min: sub.get("min").and_then(|v| v.as_float()),
+                                    max: sub.get("max").and_then(|v| v.as_float()),
+                                },
+                                "bool" => OwnedSettingType::Bool,
+                                "enum" => OwnedSettingType::Enum {
+                                    options: sub
+                                        .get("options")
+                                        .and_then(|v| v.as_array())
+                                        .map(|arr| {
+                                            arr.iter()
+                                                .filter_map(|v| v.as_str().map(String::from))
+                                                .collect()
+                                        })
+                                        .unwrap_or_default(),
+                                },
+                                _ => OwnedSettingType::Str,
+                            };
+                            let default_value = sub
+                                .get("default")
+                                .map(toml_to_json)
+                                .unwrap_or(serde_json::Value::Null);
+                            Some(OwnedSettingSlot {
+                                key: key.clone(),
+                                label,
+                                setting_type,
+                                default_value,
+                            })
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            (ts, is, ss)
         })
         .unwrap_or_default();
     Some(OwnedWidgetMeta {
         theme_slots,
         icon_slots,
+        setting_slots,
     })
 }
 
@@ -553,7 +610,8 @@ pub fn mock_stdin_json() -> String {
         },
         "config": {
             "compact": false,
-            "components": []
+            "components": [],
+            "settings": {}
         }
     })
     .to_string()
@@ -633,14 +691,13 @@ mod tests {
     }
 
     #[test]
-    fn filters_out_built_in_widgets() {
+    fn lists_all_widgets_including_core_names() {
         let dir = TempDir::new().unwrap();
-        // "git" is a known built-in from widgets::AVAILABLE
         make_file(&dir, "git.sh");
         make_file(&dir, "custom.sh");
 
         let widgets = list_custom_widgets_in(dir.path());
-        assert_eq!(widgets, vec!["custom"]);
+        assert_eq!(widgets, vec!["custom", "git"]);
     }
 
     #[test]

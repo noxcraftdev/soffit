@@ -69,11 +69,17 @@ pub struct WidgetConfig {
     pub icons: Option<HashMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bar_style: Option<BarStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<HashMap<String, Value>>,
 }
 
 impl WidgetConfig {
     pub fn has_appearance_overrides(&self) -> bool {
         self.theme.is_some() || self.icons.is_some() || self.bar_style.is_some()
+    }
+
+    pub fn has_overrides(&self) -> bool {
+        self.has_appearance_overrides() || self.settings.is_some()
     }
 }
 

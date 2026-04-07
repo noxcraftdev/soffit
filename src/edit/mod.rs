@@ -1,5 +1,3 @@
-pub mod widget_reference;
-
 use anyhow::Result;
 #[cfg(feature = "desktop")]
 use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
@@ -12,7 +10,6 @@ use crate::theme::{
     THEME_PRESETS,
 };
 use crate::types::ThemeValue;
-use widget_reference::{component_desc, widget_ref, WIDGETS};
 
 // ---- entry point -----------------------------------------------------------
 
@@ -151,9 +148,7 @@ pub fn run() -> Result<()> {
         config = config.with_menu(None);
     }
 
-    dioxus::LaunchBuilder::new()
-        .with_cfg(config)
-        .launch(App);
+    dioxus::LaunchBuilder::new().with_cfg(config).launch(App);
     Ok(())
 }
 
@@ -186,8 +181,10 @@ fn effective_components(config: &StatuslineConfig, name: &str) -> Vec<String> {
             return wc.components.clone();
         }
     }
-    widget_ref(name)
-        .map(|w| w.default_components.iter().map(|s| s.to_string()).collect())
+    plugin::list_widget_metas()
+        .into_iter()
+        .find(|m| m.name == name)
+        .map(|m| m.components)
         .unwrap_or_default()
 }
 
@@ -292,355 +289,126 @@ fn parse_comp_drop(s: &str) -> Option<CompDrop> {
 
 // ---- preview ---------------------------------------------------------------
 
-fn resolve_preview_icon<'a>(
-    icons: &'a std::collections::HashMap<String, String>,
-    key: &str,
-    default: &'a str,
-) -> &'a str {
-    icons.get(key).map(|s| s.as_str()).unwrap_or(default)
-}
-
-fn bar_style_chars(bar_style: &crate::theme::BarStyle) -> (char, char) {
-    match bar_style {
-        crate::theme::BarStyle::Block => ('■', '□'),
-        crate::theme::BarStyle::Dot => ('●', '○'),
-        crate::theme::BarStyle::Ascii => ('#', '-'),
-    }
-}
-
 fn widget_preview(
     name: &str,
     compact: bool,
     components: &[String],
     config: &StatuslineConfig,
 ) -> Element {
-    use crate::theme::ansi_256_to_hex;
+    let orange_s = crate::theme::ansi_256_to_hex(config.palette.warning);
+    let orange = orange_s.as_str();
 
-    // Build effective palette: start from global palette, apply per-widget color slot overrides.
-    let mut pal = config.palette.clone();
-    if let Some(wref) = widget_ref(name) {
-        let per_widget_theme = config.widgets.get(name).and_then(|wc| wc.theme.as_ref());
-        if let Some(theme_map) = per_widget_theme {
-            for slot in wref.color_slots {
-                if let Some(tv) = theme_map.get(slot.key) {
+    // Build palette-aware effective palette, then apply per-widget color overrides.
+    let wmeta = crate::plugin::widget_meta(name);
+    let mut widget_palette = config.palette.clone();
+    if let (Some(ref wmeta), Some(wc)) = (&wmeta, config.widgets.get(name)) {
+        if let Some(ref theme_map) = wc.theme {
+            for slot in &wmeta.theme_slots {
+                if let Some(tv) = theme_map.get(&slot.key) {
                     let idx = match tv {
                         ThemeValue::Custom(n) => *n,
                         ThemeValue::Role(r) => config.palette.resolve(*r),
                     };
-                    pal.set_role(slot.palette_role, idx);
+                    if let Some(role) = slot.palette_role {
+                        widget_palette.set_role(role, idx);
+                    }
                 }
             }
         }
     }
-
-    let widget_icons: std::collections::HashMap<String, String> = config
+    let widget_icons_json: serde_json::Value = {
+        let user_icons = config.widgets.get(name).and_then(|wc| wc.icons.as_ref());
+        let mut map = serde_json::Map::new();
+        if let Some(ref wmeta) = wmeta {
+            for slot in &wmeta.icon_slots {
+                let val = user_icons
+                    .and_then(|m| m.get(&slot.key))
+                    .cloned()
+                    .unwrap_or_else(|| slot.default_value.clone());
+                map.insert(slot.key.clone(), serde_json::Value::String(val));
+            }
+        }
+        serde_json::Value::Object(map)
+    };
+    let widget_settings: serde_json::Value = {
+        let user_settings = config.widgets.get(name).and_then(|wc| wc.settings.as_ref());
+        let mut map = serde_json::Map::new();
+        if let Some(ref wmeta) = wmeta {
+            for slot in &wmeta.setting_slots {
+                let val = user_settings
+                    .and_then(|m| m.get(&slot.key))
+                    .cloned()
+                    .unwrap_or_else(|| slot.default_value.clone());
+                map.insert(slot.key.clone(), val);
+            }
+        }
+        if let Some(user) = user_settings {
+            for (k, v) in user {
+                if !map.contains_key(k) {
+                    map.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        serde_json::Value::Object(map)
+    };
+    let bar_style = config
         .widgets
         .get(name)
-        .and_then(|wc| wc.icons.as_ref())
-        .cloned()
-        .unwrap_or_default();
-
-    let widget_bar_style = config
-        .widgets
-        .get(name)
-        .and_then(|wc| wc.bar_style.clone())
-        .unwrap_or_else(|| config.bar_style.clone());
-
-    let dim_s = ansi_256_to_hex(pal.muted);
-    let blue_s = ansi_256_to_hex(pal.primary);
-    let green_s = ansi_256_to_hex(pal.success);
-    let orange_s = ansi_256_to_hex(pal.warning);
-    let red_s = ansi_256_to_hex(pal.danger);
-    let purple_s = ansi_256_to_hex(pal.accent);
-    let yellow_s = ansi_256_to_hex(pal.subtle);
-    let dim = dim_s.as_str();
-    let blue = blue_s.as_str();
-    let green = green_s.as_str();
-    let orange = orange_s.as_str();
-    let red = red_s.as_str();
-    let purple = purple_s.as_str();
-    let yellow = yellow_s.as_str();
-
-    match name {
-        "insights" => {
-            let all: &[(&str, &str, &str, &str)] = &[
-                ("strategies", purple, "🔭2", "🔭 2 strategies"),
-                ("priorities", red, "🎯1", "🎯 1 priority"),
-                ("insights", orange, "💡3", "💡 3 insights"),
-                ("notes", green, "📋4", "📋 4 notes"),
-                ("pending", yellow, "⏳2", "⏳ 2 pending"),
-            ];
-            let parts: Vec<(&str, &str, &str, &str)> = components
-                .iter()
-                .filter_map(|c| all.iter().find(|(k, _, _, _)| *k == c.as_str()).copied())
-                .collect();
-            if parts.is_empty() {
-                return rsx! { span { style: "color:{dim}", "—" } };
-            }
-            rsx! {
-                span {
-                    for (i, (_, color, compact_txt, verbose_txt)) in parts.into_iter().enumerate() {
-                        if i > 0 {
-                            if compact { " " } else { span { style: "color:{dim}", " | " } }
-                        }
-                        span { style: "color:{color}",
-                            if compact { "{compact_txt}" } else { "{verbose_txt}" }
-                        }
-                    }
-                    if !compact { span { style: "color:{dim}", " /brief" } }
-                }
-            }
+        .and_then(|wc| wc.bar_style.as_ref())
+        .unwrap_or(&config.bar_style);
+    let input = serde_json::json!({
+        "data": {
+            "session_id": "preview-session",
+            "version": "1.0.0",
+            "model": { "display_name": "Claude Sonnet 4 (200k context)" },
+            "context_window": {
+                "used_percentage": 42.0,
+                "context_window_size": 200_000,
+                "current_usage": { "input_tokens": 84_000 }
+            },
+            "cost": {
+                "total_duration_ms": 2_340_000,
+                "total_cost_usd": 1.87
+            },
+            "vim": { "mode": "NORMAL" },
+            "agent": { "name": "researcher" },
+            "workspace": { "current_dir": std::env::current_dir().unwrap_or_default() },
+        },
+        "_soffit": {
+            "pct": 42,
+            "input_tokens": 84_000,
+            "compact_size": 200_000,
+            "use_unicode_text": config.use_unicode_text,
+            "terminal_width": 120,
+        },
+        "config": {
+            "compact": compact,
+            "components": components,
+            "palette": {
+                "primary": crate::theme::ansi(widget_palette.primary),
+                "accent": crate::theme::ansi(widget_palette.accent),
+                "success": crate::theme::ansi(widget_palette.success),
+                "warning": crate::theme::ansi(widget_palette.warning),
+                "danger": crate::theme::ansi(widget_palette.danger),
+                "muted": crate::theme::ansi(widget_palette.muted),
+                "subtle": crate::theme::ansi(widget_palette.subtle),
+                "reset": crate::theme::RESET,
+                "dim_success": "\x1b[38;5;65m",
+                "dim_warning": "\x1b[38;5;130m",
+                "dim_danger": "\x1b[38;5;131m",
+                "dim_primary": "\x1b[38;5;67m",
+            },
+            "icons": widget_icons_json,
+            "settings": widget_settings,
+            "bar_style": bar_style.to_string(),
         }
-        "cost" => {
-            let cost_icon = resolve_preview_icon(&widget_icons, "cost", "💸 ");
-            let all: &[(&str, &str, &str)] = &[
-                ("session", dim, "$0.42"),
-                ("today", green, "$1.80"),
-                ("week", green, "$18.50"),
-            ];
-            let parts: Vec<(&str, &str)> = components
-                .iter()
-                .filter_map(|c| {
-                    all.iter()
-                        .find(|(k, _, _)| *k == c.as_str())
-                        .map(|(_, col, val)| (*col, *val))
-                })
-                .collect();
-            if parts.is_empty() {
-                return rsx! { span { style: "color:{dim}", "—" } };
-            }
-            rsx! {
-                span {
-                    if !compact { "{cost_icon}" }
-                    for (i, (color, val)) in parts.into_iter().enumerate() {
-                        if i > 0 {
-                            if compact { " " } else { span { style: "color:{dim}", " | " } }
-                        }
-                        span { style: "color:{color}", "{val}" }
-                    }
-                }
-            }
+    });
+    match crate::plugin::run_widget(name, &input.to_string()) {
+        Some(text) => {
+            let html = crate::theme::ansi_to_html(&text).to_string();
+            rsx! { span { dangerous_inner_html: "{html}" } }
         }
-        "version" => {
-            let update_icon = resolve_preview_icon(&widget_icons, "update", "↑ ").to_string();
-            let use_uni = config.use_unicode_text;
-            let ver_v = if use_uni {
-                crate::fmt::superscript("1.2.16")
-            } else {
-                "1.2.16".into()
-            };
-            let model_v = if use_uni {
-                crate::fmt::subscript("claude-sonnet-4-6")
-            } else {
-                "claude-sonnet-4-6".into()
-            };
-            let parts: Vec<(&str, String)> = components
-                .iter()
-                .filter_map(|c| match c.as_str() {
-                    "update" => Some((orange, update_icon.clone())),
-                    "version" => Some((
-                        dim,
-                        if compact {
-                            "1.2.16".into()
-                        } else {
-                            ver_v.clone()
-                        },
-                    )),
-                    "model" => Some((
-                        purple,
-                        if compact {
-                            "sonnet".into()
-                        } else {
-                            model_v.clone()
-                        },
-                    )),
-                    _ => None,
-                })
-                .filter(|(_, txt)| !txt.is_empty())
-                .collect();
-            rsx! {
-                span {
-                    for (i, (color, txt)) in parts.into_iter().enumerate() {
-                        if i > 0 { " " }
-                        span { style: "color:{color}", "{txt}" }
-                    }
-                }
-            }
-        }
-        "context_bar" => {
-            let (bar_fill, bar_empty) = bar_style_chars(&widget_bar_style);
-            let bar_str = format!(
-                "{}{}{}{}{}{}{}{}",
-                bar_fill, bar_fill, bar_fill, bar_fill, bar_empty, bar_empty, bar_empty, bar_empty
-            );
-            let all: &[(&str, bool)] = &[("bar", false), ("pct", false), ("tokens", true)];
-            let parts: Vec<(&str, String)> = components
-                .iter()
-                .filter_map(|c| {
-                    all.iter()
-                        .find(|(k, _)| *k == c.as_str())
-                        .filter(|(_, compact_hide)| !compact || !compact_hide)
-                        .map(|(k, _)| {
-                            let (col, txt) = match *k {
-                                "bar" => (green, bar_str.clone()),
-                                "pct" => (green, "🯴🯲٪".to_string()),
-                                "tokens" => (dim, "42k/100k".to_string()),
-                                _ => unreachable!(),
-                            };
-                            (col, txt)
-                        })
-                })
-                .collect();
-            rsx! {
-                span {
-                    for (i, (color, txt)) in parts.into_iter().enumerate() {
-                        if i > 0 { " " }
-                        span { style: "color:{color}", "{txt}" }
-                    }
-                }
-            }
-        }
-        "git" => {
-            let branch_icon = resolve_preview_icon(&widget_icons, "branch", "⎇ ").to_string();
-            let staged_icon = resolve_preview_icon(&widget_icons, "staged", "•").to_string();
-            let branch_txt = format!("{branch_icon}main");
-            let staged_txt = format!("{staged_icon}2");
-            let all: &[(&str, bool)] = &[
-                ("branch", false),
-                ("staged", true),
-                ("modified", true),
-                ("repo", true),
-            ];
-            let parts: Vec<(&str, String)> = components
-                .iter()
-                .filter_map(|c| {
-                    all.iter()
-                        .find(|(k, _)| *k == c.as_str())
-                        .filter(|(_, compact_hide)| !compact || !compact_hide)
-                        .map(|(k, _)| {
-                            let (col, txt) = match *k {
-                                "branch" => (blue, branch_txt.clone()),
-                                "staged" => (green, staged_txt.clone()),
-                                "modified" => (orange, "~1".to_string()),
-                                "repo" => (dim, "jarvis".to_string()),
-                                _ => unreachable!(),
-                            };
-                            (col, txt)
-                        })
-                })
-                .collect();
-            rsx! {
-                span {
-                    for (i, (color, txt)) in parts.into_iter().enumerate() {
-                        if i > 0 { " " }
-                        span { style: "color:{color}", "{txt}" }
-                    }
-                }
-            }
-        }
-        "quota" => {
-            let (quota_fill, quota_empty) = bar_style_chars(&widget_bar_style);
-            let five_hour_txt = format!(
-                "5h:{}{}{}{} 60%",
-                quota_fill, quota_fill, quota_empty, quota_empty
-            );
-            let seven_day_txt = format!(
-                "7d:{}{}{}{} 75%",
-                quota_fill, quota_fill, quota_fill, quota_empty
-            );
-            let all: &[(&str, &str)] = &[("five_hour", blue), ("seven_day", green)];
-            let parts: Vec<(&str, String)> = components
-                .iter()
-                .filter_map(|c| {
-                    all.iter().find(|(k, _)| *k == c.as_str()).map(|(k, col)| {
-                        let txt = match *k {
-                            "five_hour" => five_hour_txt.clone(),
-                            "seven_day" => seven_day_txt.clone(),
-                            _ => unreachable!(),
-                        };
-                        (*col, txt)
-                    })
-                })
-                .collect();
-            rsx! {
-                span {
-                    for (i, (color, txt)) in parts.into_iter().enumerate() {
-                        if i > 0 { span { style: "color:{dim}", " | " } }
-                        span { style: "color:{color}", "{txt}" }
-                    }
-                }
-            }
-        }
-        "duration" => {
-            let duration_icon = resolve_preview_icon(&widget_icons, "duration", "⏱ ").to_string();
-            rsx! { span { style: "color:{orange}", if !compact { "{duration_icon}" } "1h23m" } }
-        }
-        "vim" => rsx! { span { style: "color:{purple}", if !compact { " " } "NORMAL" } },
-        "agent" => {
-            let agent_icon = resolve_preview_icon(&widget_icons, "agent", "❯ ").to_string();
-            rsx! { span { style: "color:{orange}", if !compact { "{agent_icon}" } "worker-1" } }
-        }
-        "session" => rsx! { span { style: "color:{dim}", "a3f9" } },
-        _ => {
-            // Build palette-aware effective palette, then apply per-widget color overrides.
-            let wmeta = crate::plugin::widget_meta(name);
-            let mut widget_palette = config.palette.clone();
-            if let (Some(ref wmeta), Some(wc)) = (&wmeta, config.widgets.get(name)) {
-                if let Some(ref theme_map) = wc.theme {
-                    for slot in &wmeta.theme_slots {
-                        if let Some(tv) = theme_map.get(&slot.key) {
-                            let idx = match tv {
-                                ThemeValue::Custom(n) => *n,
-                                ThemeValue::Role(r) => config.palette.resolve(*r),
-                            };
-                            if let Some(role) = slot.palette_role {
-                                widget_palette.set_role(role, idx);
-                            }
-                        }
-                    }
-                }
-            }
-            let widget_icons: serde_json::Value = {
-                let user_icons = config.widgets.get(name).and_then(|wc| wc.icons.as_ref());
-                let mut map = serde_json::Map::new();
-                if let Some(ref wmeta) = wmeta {
-                    for slot in &wmeta.icon_slots {
-                        let val = user_icons
-                            .and_then(|m| m.get(&slot.key))
-                            .cloned()
-                            .unwrap_or_else(|| slot.default_value.clone());
-                        map.insert(slot.key.clone(), serde_json::Value::String(val));
-                    }
-                }
-                serde_json::Value::Object(map)
-            };
-            let input = serde_json::json!({
-                "data": {},
-                "config": {
-                    "compact": compact,
-                    "components": components,
-                    "palette": {
-                        "primary": crate::theme::ansi(widget_palette.primary),
-                        "accent": crate::theme::ansi(widget_palette.accent),
-                        "success": crate::theme::ansi(widget_palette.success),
-                        "warning": crate::theme::ansi(widget_palette.warning),
-                        "danger": crate::theme::ansi(widget_palette.danger),
-                        "muted": crate::theme::ansi(widget_palette.muted),
-                        "subtle": crate::theme::ansi(widget_palette.subtle),
-                        "reset": crate::theme::RESET,
-                    },
-                    "icons": widget_icons,
-                    "bar_style": "block",
-                }
-            });
-            match crate::plugin::run_widget(name, &input.to_string()) {
-                Some(text) => {
-                    let html = crate::theme::ansi_to_html(&text).to_string();
-                    rsx! { span { dangerous_inner_html: "{html}" } }
-                }
-                None => rsx! { span { style: "color:{orange}", "{name}" } },
-            }
-        }
+        None => rsx! { span { style: "color:{orange}", "{name}" } },
     }
 }
 
@@ -720,17 +488,11 @@ pub fn App() -> Element {
                         };
                         {
                             let mut cfg = config.write();
-                            let all_comps: Vec<String> = widget_ref(&widget_name)
-                                .map(|w| {
-                                    w.default_components.iter().map(|s| s.to_string()).collect()
-                                })
-                                .or_else(|| {
-                                    widget_metas
-                                        .read()
-                                        .iter()
-                                        .find(|p| p.name == widget_name)
-                                        .map(|p| p.components.clone())
-                                })
+                            let all_comps: Vec<String> = widget_metas
+                                .read()
+                                .iter()
+                                .find(|p| p.name == widget_name)
+                                .map(|p| p.components.clone())
                                 .unwrap_or_default();
                             let wc = cfg.widgets.entry(widget_name).or_default();
                             if wc.components.is_empty() {
@@ -1202,20 +964,6 @@ fn SettingsTab(config: Signal<StatuslineConfig>) -> Element {
                 }
             }
 
-            // Section 5: Weekly Budget
-            div { style: "margin-bottom:20px;",
-                div { style: "color:#cdd6f4; font-size:14px; font-weight:bold; margin:0 0 8px 0;", "Weekly Budget ($)" }
-                input {
-                    r#type: "number",
-                    value: "{config.read().weekly_budget.unwrap_or(300.0)}",
-                    style: "background:#181825; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace; width:100px;",
-                    oninput: move |evt| {
-                        let v: Option<f64> = evt.value().parse().ok();
-                        config.write().weekly_budget = v;
-                        autosave(&config);
-                    },
-                }
-            }
 
             // Section 6: Editor Font
             div { style: "margin-bottom:20px;",
@@ -1254,7 +1002,14 @@ fn build_preview_font_family(editor_font: Option<&str>) -> String {
     static FALLBACKS: OnceLock<String> = OnceLock::new();
     let fallbacks = FALLBACKS.get_or_init(|| {
         let all = list_system_fonts();
-        let keywords = ["nerd", "symbol", "iosevka", "noto sans symbols", "noto color emoji", "emoji"];
+        let keywords = [
+            "nerd",
+            "symbol",
+            "iosevka",
+            "noto sans symbols",
+            "noto color emoji",
+            "emoji",
+        ];
         let mut picked: Vec<&str> = all
             .iter()
             .filter(|f| {
@@ -1361,9 +1116,10 @@ fn read_font_family(path: &std::path::Path) -> Option<String> {
     if name_offset == 0 || name_offset + 6 > data.len() {
         return None;
     }
-    let count = u16::from_be_bytes(data[name_offset + 2..name_offset + 4].try_into().ok()?) as usize;
-    let string_offset =
-        name_offset + u16::from_be_bytes(data[name_offset + 4..name_offset + 6].try_into().ok()?) as usize;
+    let count =
+        u16::from_be_bytes(data[name_offset + 2..name_offset + 4].try_into().ok()?) as usize;
+    let string_offset = name_offset
+        + u16::from_be_bytes(data[name_offset + 4..name_offset + 6].try_into().ok()?) as usize;
 
     for i in 0..count {
         let rec = name_offset + 6 + i * 12;
@@ -1374,7 +1130,8 @@ fn read_font_family(path: &std::path::Path) -> Option<String> {
         let encoding_id = u16::from_be_bytes(data[rec + 2..rec + 4].try_into().ok()?);
         let name_id = u16::from_be_bytes(data[rec + 6..rec + 8].try_into().ok()?);
         let length = u16::from_be_bytes(data[rec + 8..rec + 10].try_into().ok()?) as usize;
-        let str_off = string_offset + u16::from_be_bytes(data[rec + 10..rec + 12].try_into().ok()?) as usize;
+        let str_off =
+            string_offset + u16::from_be_bytes(data[rec + 10..rec + 12].try_into().ok()?) as usize;
 
         if name_id != 1 || str_off + length > data.len() {
             continue;
@@ -1383,7 +1140,10 @@ fn read_font_family(path: &std::path::Path) -> Option<String> {
         let raw = &data[str_off..str_off + length];
         // Platform 3 (Windows) encoding 1 = UTF-16BE
         if platform_id == 3 && encoding_id == 1 {
-            let chars: Vec<u16> = raw.chunks(2).filter_map(|c| c.try_into().ok().map(u16::from_be_bytes)).collect();
+            let chars: Vec<u16> = raw
+                .chunks(2)
+                .filter_map(|c| c.try_into().ok().map(u16::from_be_bytes))
+                .collect();
             return Some(String::from_utf16_lossy(&chars));
         }
         // Platform 1 (Mac) encoding 0 = MacRoman ≈ ASCII for family names
@@ -1588,11 +1348,6 @@ fn AddWidgetSelect(
                 }
             },
             option { value: "", disabled: true, selected: true, "＋ add widget" }
-            for w in WIDGETS.iter() {
-                if !current_widgets.iter().any(|s| s == w.name) {
-                    option { value: "{w.name}", "{w.name} — {w.description}" }
-                }
-            }
             for p in widget_metas.read().iter() {
                 if !current_widgets.contains(&p.name) {
                     option { value: "{p.name}", "{p.name} — {p.description}" }
@@ -1620,17 +1375,8 @@ fn WidgetsTab(
             p { style: "color:#6c7086; font-size:12px; margin:0 0 12px;",
                 "Reorder or hide components per widget. Compact strips labels and separators."
             }
-            for w in WIDGETS.iter().filter(|w| !w.default_components.is_empty() || w.has_compact || !w.color_slots.is_empty() || !w.icon_slots.is_empty()) {
-                WidgetAccordion {
-                    config,
-                    widget_name: w.name.to_string(),
-                    all_components: w.default_components.iter().map(|s| s.to_string()).collect(),
-                    has_compact: w.has_compact,
-                }
-            }
             div { style: "margin-top:16px;",
                 div { style: "display:flex; align-items:center; gap:8px; margin-bottom:8px;",
-                    div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em;", "Custom Widgets" }
                     button {
                         style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:1px 8px; font-size:12px; cursor:pointer; line-height:1.6;",
                         onclick: move |_| {
@@ -1684,11 +1430,6 @@ fn WidgetsTab(
                                     }
                                     if name.contains(' ') {
                                         create_error.set("Name cannot contain spaces.".to_string());
-                                        return;
-                                    }
-                                    use crate::widgets;
-                                    if widgets::AVAILABLE.contains(&name.as_str()) {
-                                        create_error.set(format!("'{name}' collides with a built-in widget."));
                                         return;
                                     }
                                     let lang = new_lang.read().clone();
@@ -1753,7 +1494,7 @@ fn WidgetsTab(
                         widget_name: p.name.clone(),
                         all_components: p.components.clone(),
                         has_compact: p.has_compact,
-                        widget_metas: Some(widget_metas),
+                        widget_metas: widget_metas,
                     }
                 }
             }
@@ -1767,15 +1508,9 @@ fn WidgetAccordion(
     widget_name: String,
     all_components: Vec<String>,
     has_compact: bool,
-    widget_metas: Option<Signal<Vec<plugin::WidgetMeta>>>,
+    widget_metas: Signal<Vec<plugin::WidgetMeta>>,
 ) -> Element {
-    let is_custom = widget_metas.is_some();
-
-    let source_init = if is_custom {
-        plugin::read_widget_source(&widget_name).unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let source_init = plugin::read_widget_source(&widget_name).unwrap_or_default();
     let mut source = use_signal(|| source_init);
     let mut preview_result: Signal<Option<plugin::WidgetOutput>> = use_signal(|| None);
     let mut editing = use_signal(|| false);
@@ -1804,25 +1539,28 @@ fn WidgetAccordion(
         "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:3px; padding:1px 7px; font-size:11px; cursor:pointer;"
     };
 
-    let (widget_colors, widget_icons_map, widget_bar_style, has_appearance_override, palette) = {
+    let (
+        widget_colors,
+        widget_icons_map,
+        widget_bar_style,
+        widget_settings,
+        has_customize_override,
+        palette,
+    ) = {
         let cfg = config.read();
         let wc = cfg.widgets.get(widget_name.as_str());
-        let has_override =
-            wc.is_some_and(|w: &crate::types::WidgetConfig| w.has_appearance_overrides());
+        let has_override = wc.is_some_and(|w: &crate::types::WidgetConfig| w.has_overrides());
         (
             wc.and_then(|w| w.theme.clone()).unwrap_or_default(),
             wc.and_then(|w| w.icons.clone()).unwrap_or_default(),
             wc.and_then(|w| w.bar_style.clone()),
+            wc.and_then(|w| w.settings.clone()).unwrap_or_default(),
             has_override,
             cfg.palette.clone(),
         )
     };
 
-    let wmeta = if is_custom {
-        plugin::widget_meta(&widget_name)
-    } else {
-        None
-    };
+    let wmeta = plugin::widget_meta(&widget_name);
     let custom_color_slots = wmeta
         .as_ref()
         .map(|m| m.theme_slots.clone())
@@ -1830,6 +1568,10 @@ fn WidgetAccordion(
     let custom_icon_slots = wmeta
         .as_ref()
         .map(|m| m.icon_slots.clone())
+        .unwrap_or_default();
+    let setting_slots: Vec<plugin::OwnedSettingSlot> = wmeta
+        .as_ref()
+        .map(|m| m.setting_slots.clone())
         .unwrap_or_default();
 
     let wn = widget_name.clone();
@@ -1847,13 +1589,6 @@ fn WidgetAccordion(
 
     // Determine if this widget uses bar-style widgets
     let show_bar_style = matches!(widget_name.as_str(), "context_bar" | "quota");
-
-    let wref_color_slots: &[widget_reference::ThemeSlot] = widget_ref(widget_name.as_str())
-        .map(|w| w.color_slots)
-        .unwrap_or(&[]);
-    let wref_icon_slots: &[widget_reference::IconSlot] = widget_ref(widget_name.as_str())
-        .map(|w| w.icon_slots)
-        .unwrap_or(&[]);
 
     rsx! {
         details {
@@ -1948,30 +1683,258 @@ fn WidgetAccordion(
                     }
                 }
 
-                // Appearance section
+                // Customize section (settings + appearance)
                 details {
                     style: "border:1px solid #313244; border-radius:4px; background:#11111b;",
                     summary {
                         style: "padding:6px 10px; cursor:pointer; font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; list-style:none; user-select:none;",
-                        "Appearance"
-                        if has_appearance_override {
+                        "Customize"
+                        if has_customize_override {
                             span { style: "margin-left:6px; background:#313244; color:#89b4fa; font-size:10px; border-radius:3px; padding:1px 5px;", "overrides" }
                         }
                     }
                     div { style: "padding:10px;",
-                        // Semantic color slots for built-in widgets
-                        if !wref_color_slots.is_empty() {
+                        // Functional settings (from sidecar TOML or native widget declaration)
+                        if !setting_slots.is_empty() {
+                            div { style: "margin-bottom:10px;",
+                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Settings" }
+                                for slot in setting_slots.iter() {
+                                    {
+                                        let wna = wn_appearance.clone();
+                                        let slot_key = slot.key.clone();
+                                        let slot_label = slot.label.clone();
+                                        let slot_default = slot.default_value.clone();
+                                        let current_val = widget_settings.get(&slot.key).cloned().unwrap_or_else(|| slot.default_value.clone());
+                                        let is_overridden = widget_settings.contains_key(&slot.key);
+                                        match &slot.setting_type {
+                                            plugin::OwnedSettingType::Bool => {
+                                                let checked = current_val.as_bool().unwrap_or(false);
+                                                let sk = slot_key.clone();
+                                                let sk2 = slot_key.clone();
+                                                rsx! {
+                                                    div { style: "display:flex; align-items:center; gap:8px; margin-bottom:6px;",
+                                                        label { style: "font-size:12px; color:#cdd6f4; min-width:140px;", "{slot_label}" }
+                                                        input {
+                                                            r#type: "checkbox",
+                                                            checked,
+                                                            onchange: move |evt: Event<FormData>| {
+                                                                let val = evt.checked();
+                                                                let mut binding = config.write();
+                                                                let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                                let settings = wc.settings.get_or_insert_with(Default::default);
+                                                                settings.insert(sk.clone(), serde_json::Value::Bool(val));
+                                                                drop(binding);
+                                                                autosave(&config);
+                                                            },
+                                                        }
+                                                        if is_overridden {
+                                                            button {
+                                                                style: "background:transparent; border:none; color:#f38ba8; font-size:11px; cursor:pointer; padding:0;",
+                                                                onclick: move |_| {
+                                                                    let mut binding = config.write();
+                                                                    let wc = binding.widgets.entry(sk2.clone()).or_default();
+                                                                    if let Some(ref mut s) = wc.settings { s.remove(&sk2); if s.is_empty() { wc.settings = None; } }
+                                                                    drop(binding);
+                                                                    autosave(&config);
+                                                                },
+                                                                "x"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            plugin::OwnedSettingType::Int { min, max } => {
+                                                let current_str = current_val.as_i64().map(|n| n.to_string()).unwrap_or_default();
+                                                let min_val = min;
+                                                let max_val = max;
+                                                let sk = slot_key.clone();
+                                                let sk_reset = slot_key.clone();
+                                                let wna_reset = wna.clone();
+                                                rsx! {
+                                                    div { style: "display:flex; align-items:center; gap:8px; margin-bottom:6px;",
+                                                        label { style: "font-size:12px; color:#cdd6f4; min-width:140px;", "{slot_label}" }
+                                                        input {
+                                                            r#type: "number",
+                                                            style: "background:#181825; color:#cdd6f4; border:1px solid #313244; border-radius:3px; padding:2px 6px; width:80px; font-size:12px;",
+                                                            value: current_str,
+                                                            min: min_val.map(|v: i64| v.to_string()).unwrap_or_default(),
+                                                            max: max_val.map(|v: i64| v.to_string()).unwrap_or_default(),
+                                                            onchange: move |evt: Event<FormData>| {
+                                                                if let Ok(n) = evt.value().parse::<i64>() {
+                                                                    let mut binding = config.write();
+                                                                    let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                                    let settings = wc.settings.get_or_insert_with(Default::default);
+                                                                    settings.insert(sk.clone(), serde_json::Value::Number(n.into()));
+                                                                    drop(binding);
+                                                                    autosave(&config);
+                                                                }
+                                                            },
+                                                        }
+                                                        if is_overridden {
+                                                            button {
+                                                                style: "background:transparent; border:none; color:#f38ba8; font-size:11px; cursor:pointer; padding:0;",
+                                                                onclick: move |_| {
+                                                                    let mut binding = config.write();
+                                                                    let wc = binding.widgets.entry(wna_reset.clone()).or_default();
+                                                                    if let Some(ref mut s) = wc.settings { s.remove(&sk_reset); if s.is_empty() { wc.settings = None; } }
+                                                                    drop(binding);
+                                                                    autosave(&config);
+                                                                },
+                                                                "x"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            plugin::OwnedSettingType::Float { min, max } => {
+                                                let current_str = current_val.as_f64().map(|n| format!("{n}")).unwrap_or_default();
+                                                let min_val = min;
+                                                let max_val = max;
+                                                let sk = slot_key.clone();
+                                                let sk_reset = slot_key.clone();
+                                                let wna_reset = wna.clone();
+                                                rsx! {
+                                                    div { style: "display:flex; align-items:center; gap:8px; margin-bottom:6px;",
+                                                        label { style: "font-size:12px; color:#cdd6f4; min-width:140px;", "{slot_label}" }
+                                                        input {
+                                                            r#type: "number",
+                                                            step: "0.1",
+                                                            style: "background:#181825; color:#cdd6f4; border:1px solid #313244; border-radius:3px; padding:2px 6px; width:80px; font-size:12px;",
+                                                            value: current_str,
+                                                            min: min_val.map(|v| format!("{v}")).unwrap_or_default(),
+                                                            max: max_val.map(|v| format!("{v}")).unwrap_or_default(),
+                                                            onchange: move |evt: Event<FormData>| {
+                                                                if let Ok(n) = evt.value().parse::<f64>() {
+                                                                    if let Some(num) = serde_json::Number::from_f64(n) {
+                                                                        let mut binding = config.write();
+                                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                                        let settings = wc.settings.get_or_insert_with(Default::default);
+                                                                        settings.insert(sk.clone(), serde_json::Value::Number(num));
+                                                                        drop(binding);
+                                                                        autosave(&config);
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                        if is_overridden {
+                                                            button {
+                                                                style: "background:transparent; border:none; color:#f38ba8; font-size:11px; cursor:pointer; padding:0;",
+                                                                onclick: move |_| {
+                                                                    let mut binding = config.write();
+                                                                    let wc = binding.widgets.entry(wna_reset.clone()).or_default();
+                                                                    if let Some(ref mut s) = wc.settings { s.remove(&sk_reset); if s.is_empty() { wc.settings = None; } }
+                                                                    drop(binding);
+                                                                    autosave(&config);
+                                                                },
+                                                                "x"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            plugin::OwnedSettingType::Enum { options } => {
+                                                let current_str = current_val.as_str().unwrap_or("").to_string();
+                                                let opts = options.clone();
+                                                let sk = slot_key.clone();
+                                                let sk_reset = slot_key.clone();
+                                                let wna_reset = wna.clone();
+                                                rsx! {
+                                                    div { style: "display:flex; align-items:center; gap:8px; margin-bottom:6px;",
+                                                        label { style: "font-size:12px; color:#cdd6f4; min-width:140px;", "{slot_label}" }
+                                                        select {
+                                                            style: "background:#181825; color:#cdd6f4; border:1px solid #313244; border-radius:3px; padding:2px 6px; font-size:12px;",
+                                                            onchange: move |evt: Event<FormData>| {
+                                                                let val = evt.value();
+                                                                let mut binding = config.write();
+                                                                let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                                let settings = wc.settings.get_or_insert_with(Default::default);
+                                                                settings.insert(sk.clone(), serde_json::Value::String(val));
+                                                                drop(binding);
+                                                                autosave(&config);
+                                                            },
+                                                            for opt in opts.iter() {
+                                                                option {
+                                                                    value: "{opt}",
+                                                                    selected: *opt == current_str,
+                                                                    "{opt}"
+                                                                }
+                                                            }
+                                                        }
+                                                        if is_overridden {
+                                                            button {
+                                                                style: "background:transparent; border:none; color:#f38ba8; font-size:11px; cursor:pointer; padding:0;",
+                                                                onclick: move |_| {
+                                                                    let mut binding = config.write();
+                                                                    let wc = binding.widgets.entry(wna_reset.clone()).or_default();
+                                                                    if let Some(ref mut s) = wc.settings { s.remove(&sk_reset); if s.is_empty() { wc.settings = None; } }
+                                                                    drop(binding);
+                                                                    autosave(&config);
+                                                                },
+                                                                "x"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            plugin::OwnedSettingType::Str => {
+                                                let current_str = current_val.as_str().unwrap_or("").to_string();
+                                                let default_str = slot_default.as_str().unwrap_or("").to_string();
+                                                let sk = slot_key.clone();
+                                                let sk_reset = slot_key.clone();
+                                                let wna_reset = wna.clone();
+                                                rsx! {
+                                                    div { style: "display:flex; align-items:center; gap:8px; margin-bottom:6px;",
+                                                        label { style: "font-size:12px; color:#cdd6f4; min-width:140px;", "{slot_label}" }
+                                                        input {
+                                                            r#type: "text",
+                                                            style: "background:#181825; color:#cdd6f4; border:1px solid #313244; border-radius:3px; padding:2px 6px; width:140px; font-size:12px;",
+                                                            value: current_str,
+                                                            placeholder: default_str,
+                                                            onchange: move |evt: Event<FormData>| {
+                                                                let val = evt.value();
+                                                                let mut binding = config.write();
+                                                                let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                                let settings = wc.settings.get_or_insert_with(Default::default);
+                                                                settings.insert(sk.clone(), serde_json::Value::String(val));
+                                                                drop(binding);
+                                                                autosave(&config);
+                                                            },
+                                                        }
+                                                        if is_overridden {
+                                                            button {
+                                                                style: "background:transparent; border:none; color:#f38ba8; font-size:11px; cursor:pointer; padding:0;",
+                                                                onclick: move |_| {
+                                                                    let mut binding = config.write();
+                                                                    let wc = binding.widgets.entry(wna_reset.clone()).or_default();
+                                                                    if let Some(ref mut s) = wc.settings { s.remove(&sk_reset); if s.is_empty() { wc.settings = None; } }
+                                                                    drop(binding);
+                                                                    autosave(&config);
+                                                                },
+                                                                "x"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Color slots
+                        if !custom_color_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
                                 div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors" }
-                                for slot in wref_color_slots.iter() {
+                                for slot in custom_color_slots.iter() {
                                     {
                                         let wna = wn_appearance.clone();
                                         let slot_key = slot.key.to_string();
                                         let slot_key_for_closure = slot_key.clone();
-                                        let label = slot.label;
-                                        let default_role = Some(slot.palette_role);
+                                        let label = slot.key.clone();
+                                        let default_role = slot.palette_role;
                                         let current_val: Option<ThemeValue> =
-                                            widget_colors.get(slot.key).cloned();
+                                            widget_colors.get(&slot.key).cloned();
                                         rsx! {
                                             WidgetColorPicker {
                                                 key: "{slot_key}",
@@ -2000,140 +1963,34 @@ fn WidgetAccordion(
                             }
                         }
 
-                        // Semantic icon slots for built-in widgets
-                        if !wref_icon_slots.is_empty() {
-                            div { style: "margin-bottom:10px;",
-                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Icons" }
-                                div { style: "display:grid; grid-template-columns:1fr 1fr; gap:6px 20px;",
-                                    for slot in wref_icon_slots.iter() {
-                                        if slot.is_char {
-                                            {
-                                                let wna = wn_appearance.clone();
-                                                let slot_key = slot.key.to_string();
-                                                let label = slot.label;
-                                                let placeholder: char = slot.default_value.chars().next().unwrap_or(' ');
-                                                let current_val = widget_icons_map.get(slot.key).and_then(|s| s.chars().next());
-                                                rsx! { CharInputRow { label, value: current_val, placeholder,
-                                                    on_change: move |v: Option<char>| {
-                                                        let mut binding = config.write();
-                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
-                                                        let icons = wc.icons.get_or_insert_with(Default::default);
-                                                        match v {
-                                                            Some(c) => { icons.insert(slot_key.clone(), c.to_string()); }
-                                                            None => { icons.remove(&slot_key); }
-                                                        }
-                                                        if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
-                                                            wc.icons = None;
-                                                        }
-                                                        drop(binding);
-                                                        autosave(&config);
-                                                    }
-                                                }}
-                                            }
-                                        } else {
-                                            {
-                                                let wna = wn_appearance.clone();
-                                                let slot_key = slot.key.to_string();
-                                                let label = slot.label;
-                                                let placeholder = slot.default_value;
-                                                let current_val = widget_icons_map.get(slot.key).cloned();
-                                                rsx! { IconInputRow { label, value: current_val, placeholder,
-                                                    on_change: move |v: Option<String>| {
-                                                        let mut binding = config.write();
-                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
-                                                        let icons = wc.icons.get_or_insert_with(Default::default);
-                                                        match v {
-                                                            Some(s) => { icons.insert(slot_key.clone(), s); }
-                                                            None => { icons.remove(&slot_key); }
-                                                        }
-                                                        if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
-                                                            wc.icons = None;
-                                                        }
-                                                        drop(binding);
-                                                        autosave(&config);
-                                                    }
-                                                }}
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Custom widget color slots (from sidecar TOML)
-                        if is_custom && !custom_color_slots.is_empty() {
-                            div { style: "margin-bottom:10px;",
-                                div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Colors" }
-                                for slot in custom_color_slots.iter() {
-                                    {
-                                        let wna = wn_appearance.clone();
-                                        let slot_key = slot.key.clone();
-                                        let slot_key2 = slot.key.clone();
-                                        let label = slot.key.clone();
-                                        let current_val: Option<ThemeValue> = widget_colors.get(&slot.key).cloned();
-                                        rsx! {
-                                            WidgetColorPicker {
-                                                key: "{slot_key}",
-                                                label,
-                                                value: current_val,
-                                                palette: palette.clone(),
-                                                default_role: None,
-                                                on_change: move |v: Option<ThemeValue>| {
-                                                    let mut binding = config.write();
-                                                    let wc = binding.widgets.entry(wna.clone()).or_default();
-                                                    let theme_map = wc.theme.get_or_insert_with(Default::default);
-                                                    match v {
-                                                        Some(cv) => { theme_map.insert(slot_key2.clone(), cv); }
-                                                        None => { theme_map.remove(&slot_key2); }
-                                                    }
-                                                    if wc.theme.as_ref().is_some_and(|m: &std::collections::HashMap<String, ThemeValue>| m.is_empty()) {
-                                                        wc.theme = None;
-                                                    }
-                                                    drop(binding);
-                                                    autosave(&config);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Custom widget icon slots (from sidecar TOML)
-                        if is_custom && !custom_icon_slots.is_empty() {
+                        // Icon slots
+                        if !custom_icon_slots.is_empty() {
                             div { style: "margin-bottom:10px;",
                                 div { style: "font-size:11px; color:#6c7086; margin-bottom:6px;", "Icons" }
                                 div { style: "display:grid; grid-template-columns:1fr 1fr; gap:6px 20px;",
                                     for slot in custom_icon_slots.iter() {
                                         {
                                             let wna = wn_appearance.clone();
-                                            let slot_key = slot.key.clone();
-                                            let slot_key2 = slot.key.clone();
+                                            let slot_key = slot.key.to_string();
                                             let label = slot.key.clone();
                                             let placeholder = slot.default_value.clone();
                                             let current_val = widget_icons_map.get(&slot.key).cloned();
-                                            rsx! {
-                                                IconInputRow {
-                                                    key: "{slot_key}",
-                                                    label,
-                                                    value: current_val,
-                                                    placeholder,
-                                                    on_change: move |v: Option<String>| {
-                                                        let mut binding = config.write();
-                                                        let wc = binding.widgets.entry(wna.clone()).or_default();
-                                                        let icons = wc.icons.get_or_insert_with(Default::default);
-                                                        match v {
-                                                            Some(s) => { icons.insert(slot_key2.clone(), s); }
-                                                            None => { icons.remove(&slot_key2); }
-                                                        }
-                                                        if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
-                                                            wc.icons = None;
-                                                        }
-                                                        drop(binding);
-                                                        autosave(&config);
+                                            rsx! { IconInputRow { label, value: current_val, placeholder,
+                                                on_change: move |v: Option<String>| {
+                                                    let mut binding = config.write();
+                                                    let wc = binding.widgets.entry(wna.clone()).or_default();
+                                                    let icons = wc.icons.get_or_insert_with(Default::default);
+                                                    match v {
+                                                        Some(s) => { icons.insert(slot_key.clone(), s); }
+                                                        None => { icons.remove(&slot_key); }
                                                     }
+                                                    if wc.icons.as_ref().is_some_and(|m| m.is_empty()) {
+                                                        wc.icons = None;
+                                                    }
+                                                    drop(binding);
+                                                    autosave(&config);
                                                 }
-                                            }
+                                            }}
                                         }
                                     }
                                 }
@@ -2203,8 +2060,8 @@ fn WidgetAccordion(
                             }
                         }
 
-                        // Reset appearance button
-                        if has_appearance_override {
+                        // Reset all customizations button
+                        if has_customize_override {
                             button {
                                 style: "background:transparent; border:none; color:#f38ba8; font-size:12px; cursor:pointer; text-decoration:underline;",
                                 onclick: move |_| {
@@ -2212,158 +2069,163 @@ fn WidgetAccordion(
                                         wc.theme = None;
                                         wc.icons = None;
                                         wc.bar_style = None;
+                                        wc.settings = None;
                                     }
                                     autosave(&config);
                                 },
-                                "Reset appearance"
+                                "Reset customizations"
                             }
                         }
                     }
                 }
 
-                // Custom widget editing section
-                if is_custom {
-                    div { style: "border-top:1px solid #313244; padding-top:8px; display:flex; align-items:center; gap:8px;",
+                // Widget editing section
+                div { style: "border-top:1px solid #313244; padding-top:8px; display:flex; align-items:center; gap:8px;",
+                    button {
+                        style: if *editing.read() {
+                            "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
+                        } else {
+                            "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
+                        },
+                        onclick: move |_| {
+                            let cur = *editing.read();
+                            editing.set(!cur);
+                        },
+                        "✏ Edit source"
+                    }
+                }
+                if *editing.read() {
+                    // Source editor
+                    div {
+                        div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Source" }
+                        textarea {
+                            style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; font-family:monospace; font-size:12px; width:100%; min-height:120px; padding:8px; resize:vertical; box-sizing:border-box;",
+                            value: "{source.read()}",
+                            oninput: move |evt| source.set(evt.value()),
+                        }
                         button {
-                            style: if *editing.read() {
-                                "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
-                            } else {
-                                "background:#313244; color:#6c7086; border:1px solid #45475a; border-radius:4px; padding:3px 8px; font-size:12px; cursor:pointer;"
-                            },
+                            style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-top:6px;",
                             onclick: move |_| {
-                                let cur = *editing.read();
-                                editing.set(!cur);
+                                if let Err(e) = plugin::write_widget_source(&name_save, &source.read()) {
+                                    eprintln!("write_widget_source failed: {e}");
+                                }
+                                widget_metas.set(plugin::list_widget_metas());
                             },
-                            "✏ Edit source"
+                            "Save"
                         }
                     }
-                    if *editing.read() {
-                        // Source editor
-                        div {
-                            div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Source" }
-                            textarea {
-                                style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; font-family:monospace; font-size:12px; width:100%; min-height:120px; padding:8px; resize:vertical; box-sizing:border-box;",
-                                value: "{source.read()}",
-                                oninput: move |evt| source.set(evt.value()),
-                            }
-                            button {
-                                style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-top:6px;",
-                                onclick: move |_| {
-                                    if let Err(e) = plugin::write_widget_source(&name_save, &source.read()) {
-                                        eprintln!("write_widget_source failed: {e}");
-                                    } else if let Some(mut pm) = widget_metas {
-                                        pm.set(plugin::list_widget_metas());
+                    // Live preview
+                    div {
+                        div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Live Preview" }
+                        button {
+                            style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-bottom:6px;",
+                            onclick: move |_| {
+                                let mut mock: serde_json::Value = serde_json::from_str(&plugin::mock_stdin_json()).unwrap_or_default();
+                                if let Some(cfg_obj) = mock.get_mut("config").and_then(|c| c.as_object_mut()) {
+                                    let wc = config.read();
+                                    if let Some(user_settings) = wc.widgets.get(name_run.as_str()).and_then(|w| w.settings.as_ref()) {
+                                        cfg_obj.insert("settings".to_string(), serde_json::to_value(user_settings).unwrap_or_default());
                                     }
-                                },
-                                "Save"
-                            }
+                                }
+                                let result = plugin::run_widget_full(&name_run, &mock.to_string());
+                                preview_result.set(result);
+                            },
+                            "Run"
                         }
-                        // Live preview
-                        div {
-                            div { style: "font-size:11px; color:#6c7086; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;", "Live Preview" }
-                            button {
-                                style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 12px; font-size:12px; cursor:pointer; font-weight:bold; margin-bottom:6px;",
-                                onclick: move |_| {
-                                    let result = plugin::run_widget_full(&name_run, &plugin::mock_stdin_json());
-                                    preview_result.set(result);
-                                },
-                                "Run"
-                            }
-                            {
-                                let pr = preview_result.read();
-                                let (text, comps) = match pr.as_ref() {
-                                    Some(out) => {
-                                        let cfg = config.read();
-                                        let wc_comps = cfg.widgets.get(widget_name.as_str())
-                                            .map(|w| &w.components)
-                                            .filter(|c| !c.is_empty());
-                                        let display = if let Some(ordered) = wc_comps {
-                                            out.compose(ordered, compact)
-                                        } else {
-                                            out.compose(&[], compact)
-                                        };
-                                        (display, &out.components)
+                        {
+                            let pr = preview_result.read();
+                            let (text, comps) = match pr.as_ref() {
+                                Some(out) => {
+                                    let cfg = config.read();
+                                    let wc_comps = cfg.widgets.get(widget_name.as_str())
+                                        .map(|w| &w.components)
+                                        .filter(|c| !c.is_empty());
+                                    let display = if let Some(ordered) = wc_comps {
+                                        out.compose(ordered, compact)
+                                    } else {
+                                        out.compose(&[], compact)
+                                    };
+                                    (display, &out.components)
+                                }
+                                None => (String::new(), &vec![] as &Vec<String>),
+                            };
+                            let html = crate::theme::ansi_to_html(&text);
+                            rsx! {
+                                div {
+                                    style: "background:#11111b; border:1px solid #313244; border-radius:4px; padding:8px; font-family:monospace; font-size:12px;",
+                                    if html.is_empty() {
+                                        span { style: "color:#6c7086; font-style:italic;", "click Run to preview" }
+                                    } else {
+                                        span { dangerous_inner_html: "{html}" }
                                     }
-                                    None => (String::new(), &vec![] as &Vec<String>),
-                                };
-                                let html = crate::theme::ansi_to_html(&text);
-                                rsx! {
-                                    div {
-                                        style: "background:#11111b; border:1px solid #313244; border-radius:4px; padding:8px; font-family:monospace; font-size:12px;",
-                                        if html.is_empty() {
-                                            span { style: "color:#6c7086; font-style:italic;", "click Run to preview" }
-                                        } else {
-                                            span { dangerous_inner_html: "{html}" }
+                                }
+                                if !comps.is_empty() {
+                                    div { style: "margin-top:4px;",
+                                        span { style: "color:#6c7086; font-size:11px;", "Detected components: " }
+                                        for c in comps.iter() {
+                                            span { style: "background:#313244; color:#a6e3a1; font-size:11px; border-radius:3px; padding:1px 5px; margin-right:4px;", "{c}" }
                                         }
                                     }
-                                    if !comps.is_empty() {
-                                        div { style: "margin-top:4px;",
-                                            span { style: "color:#6c7086; font-size:11px;", "Detected components: " }
-                                            for c in comps.iter() {
-                                                span { style: "background:#313244; color:#a6e3a1; font-size:11px; border-radius:3px; padding:1px 5px; margin-right:4px;", "{c}" }
+                                }
+                            }
+                        }
+                    }
+                    // Rename + Delete
+                    div { style: "display:flex; gap:8px; align-items:center; flex-wrap:wrap;",
+                        if *renaming.read() {
+                            input {
+                                r#type: "text",
+                                value: "{rename_value.read()}",
+                                style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace;",
+                                oninput: move |evt| rename_value.set(evt.value()),
+                            }
+                            button {
+                                style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
+                                onclick: move |_| {
+                                    let new = rename_value.read().trim().to_string();
+                                    if new == name_rename || new.is_empty() {
+                                        renaming.set(false);
+                                        return;
+                                    }
+                                    match plugin::rename_widget(&name_rename, &new) {
+                                        Ok(()) => {
+                                            {
+                                                widget_metas.set(plugin::list_widget_metas());
                                             }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        // Rename + Delete
-                        div { style: "display:flex; gap:8px; align-items:center; flex-wrap:wrap;",
-                            if *renaming.read() {
-                                input {
-                                    r#type: "text",
-                                    value: "{rename_value.read()}",
-                                    style: "background:#11111b; color:#cdd6f4; border:1px solid #313244; border-radius:4px; padding:4px 8px; font-size:13px; font-family:monospace;",
-                                    oninput: move |evt| rename_value.set(evt.value()),
-                                }
-                                button {
-                                    style: "background:#89b4fa; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
-                                    onclick: move |_| {
-                                        let new = rename_value.read().trim().to_string();
-                                        if new == name_rename || new.is_empty() {
                                             renaming.set(false);
-                                            return;
                                         }
-                                        match plugin::rename_widget(&name_rename, &new) {
-                                            Ok(()) => {
-                                                if let Some(mut pm) = widget_metas {
-                                                    pm.set(plugin::list_widget_metas());
-                                                }
-                                                renaming.set(false);
-                                            }
-                                            Err(e) => rename_error.set(format!("{e}")),
-                                        }
-                                    },
-                                    "Rename"
-                                }
-                                button {
-                                    style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
-                                    onclick: move |_| renaming.set(false),
-                                    "Cancel"
-                                }
-                                if !rename_error.read().is_empty() {
-                                    span { style: "color:#f38ba8; font-size:12px;", "{rename_error.read()}" }
-                                }
-                            } else {
-                                button {
-                                    style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
-                                    onclick: move |_| {
-                                        rename_value.set(widget_name.clone());
-                                        renaming.set(true);
-                                    },
-                                    "Rename"
-                                }
-                                button {
-                                    style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
-                                    onclick: move |_| {
-                                        if let Err(e) = plugin::delete_widget(&name_delete) {
-                                            eprintln!("delete_widget failed: {e}");
-                                        } else if let Some(mut pm) = widget_metas {
-                                            pm.set(plugin::list_widget_metas());
-                                        }
-                                    },
-                                    "Delete"
-                                }
+                                        Err(e) => rename_error.set(format!("{e}")),
+                                    }
+                                },
+                                "Rename"
+                            }
+                            button {
+                                style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
+                                onclick: move |_| renaming.set(false),
+                                "Cancel"
+                            }
+                            if !rename_error.read().is_empty() {
+                                span { style: "color:#f38ba8; font-size:12px;", "{rename_error.read()}" }
+                            }
+                        } else {
+                            button {
+                                style: "background:#313244; color:#cdd6f4; border:1px solid #45475a; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer;",
+                                onclick: move |_| {
+                                    rename_value.set(widget_name.clone());
+                                    renaming.set(true);
+                                },
+                                "Rename"
+                            }
+                            button {
+                                style: "background:#f38ba8; color:#1e1e2e; border:none; border-radius:4px; padding:4px 10px; font-size:12px; cursor:pointer; font-weight:bold;",
+                                onclick: move |_| {
+                                    if let Err(e) = plugin::delete_widget(&name_delete) {
+                                        eprintln!("delete_widget failed: {e}");
+                                    } else {
+                                        widget_metas.set(plugin::list_widget_metas());
+                                    }
+                                },
+                                "Delete"
                             }
                         }
                     }
@@ -2382,7 +2244,7 @@ fn CompChip(
     comp_idx: usize,
 ) -> Element {
     let dnd_id = format!("{widget_name}:{comp_idx}");
-    let desc = component_desc(&widget_name, &comp_name);
+    let desc = "";
     let comp_for_remove = comp_name.clone();
     let wn = widget_name.clone();
     let ac = all_components.clone();
