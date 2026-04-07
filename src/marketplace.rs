@@ -226,7 +226,7 @@ pub fn install_defaults() -> anyhow::Result<()> {
         .unwrap_or_default();
 
     for name in &defaults {
-        if crate::plugin::widget_source_path(name).is_some() {
+        if crate::widget::widget_source_path(name).is_some() {
             continue;
         }
         let Some(entry) = entries.iter().find(|e| &e.name == name) else {
@@ -442,7 +442,7 @@ mod tests {
         let path = dir.path().join("marketplace.toml");
 
         let mut sources = MarketplaceSources::default_sources();
-        sources.add("community", "acme/soffit-plugins").unwrap();
+        sources.add("community", "acme/soffit-widgets").unwrap();
         save_to(&sources, &path).unwrap();
 
         let reloaded = load_from(&path).unwrap();
@@ -450,7 +450,7 @@ mod tests {
         assert_eq!(reloaded.list()[0].name, "default");
         assert_eq!(reloaded.list()[0].repo, DEFAULT_SOURCE_REPO);
         assert_eq!(reloaded.list()[1].name, "community");
-        assert_eq!(reloaded.list()[1].repo, "acme/soffit-plugins");
+        assert_eq!(reloaded.list()[1].repo, "acme/soffit-widgets");
     }
 
     #[test]
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn validate_repo_accepts_valid() {
         let mut s = MarketplaceSources::default_sources();
-        assert!(s.add("extra", "alice/my-plugins").is_ok());
+        assert!(s.add("extra", "alice/my-widgets").is_ok());
     }
 
     #[test]

@@ -120,7 +120,7 @@ fn dispatch_widget(
     let components: &Vec<String> = cfg.map(|c| &c.components).unwrap_or(&empty);
 
     // Resolve widget metadata from TOML sidecar
-    let wmeta = crate::plugin::widget_meta(name);
+    let wmeta = crate::widget::widget_meta(name);
 
     // Merge per-widget palette overrides
     let mut widget_palette = ctx.palette.clone();
@@ -214,7 +214,7 @@ fn dispatch_widget(
             "bar_style": effective_bar_style.to_string(),
         }
     });
-    crate::plugin::run_widget(name, &widget_input.to_string())
+    crate::widget::run_widget(name, &widget_input.to_string())
 }
 
 pub fn render_line_parts(
@@ -246,7 +246,7 @@ pub fn render_line(
 pub fn render(name: &str) -> anyhow::Result<()> {
     use anyhow::bail;
 
-    let custom_widgets = crate::plugin::list_custom_widgets();
+    let custom_widgets = crate::widget::list_custom_widgets();
     if name == "list" {
         for p in &custom_widgets {
             println!("{p}");

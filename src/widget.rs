@@ -661,20 +661,20 @@ mod tests {
     #[test]
     fn discovers_sh_py_and_bare_executables() {
         let dir = TempDir::new().unwrap();
-        make_file(&dir, "myplugin.sh");
+        make_file(&dir, "mywidget.sh");
         make_file(&dir, "another.py");
         make_file(&dir, "bare_exec");
 
         let mut widgets = list_custom_widgets_in(dir.path());
         widgets.sort();
 
-        assert_eq!(widgets, vec!["another", "bare_exec", "myplugin"]);
+        assert_eq!(widgets, vec!["another", "bare_exec", "mywidget"]);
     }
 
     #[test]
     fn toml_sidecar_alone_is_not_a_widget() {
         let dir = TempDir::new().unwrap();
-        make_file(&dir, "myplugin.toml");
+        make_file(&dir, "mywidget.toml");
 
         let widgets = list_custom_widgets_in(dir.path());
         assert!(widgets.is_empty());
@@ -764,17 +764,17 @@ has_compact = true
     #[test]
     fn source_path_prefers_exact_then_sh_then_py() {
         let dir = TempDir::new().unwrap();
-        make_file(&dir, "myplugin.py");
-        assert!(source_path_in(dir.path(), "myplugin").is_some());
+        make_file(&dir, "mywidget.py");
+        assert!(source_path_in(dir.path(), "mywidget").is_some());
 
-        make_file(&dir, "myplugin.sh");
-        let p = source_path_in(dir.path(), "myplugin").unwrap();
+        make_file(&dir, "mywidget.sh");
+        let p = source_path_in(dir.path(), "mywidget").unwrap();
         // .sh wins over .py because it is tried second (after exact name)
         assert_eq!(p.extension().and_then(|e| e.to_str()), Some("sh"));
     }
 
     #[test]
-    fn source_path_returns_none_for_missing_plugin() {
+    fn source_path_returns_none_for_missing_widget() {
         let dir = TempDir::new().unwrap();
         assert!(source_path_in(dir.path(), "ghost").is_none());
     }
@@ -782,42 +782,42 @@ has_compact = true
     // ---- write_widget_source_in / create_widget_in / delete_widget_in ------
 
     #[test]
-    fn write_and_read_plugin_source() {
+    fn write_and_read_widget_source() {
         let dir = TempDir::new().unwrap();
-        make_file(&dir, "myplugin.sh");
+        make_file(&dir, "mywidget.sh");
 
-        write_widget_source_in(dir.path(), "myplugin", "#!/bin/sh\necho hi").unwrap();
+        write_widget_source_in(dir.path(), "mywidget", "#!/bin/sh\necho hi").unwrap();
 
-        let content = fs::read_to_string(dir.path().join("myplugin.sh")).unwrap();
+        let content = fs::read_to_string(dir.path().join("mywidget.sh")).unwrap();
         assert_eq!(content, "#!/bin/sh\necho hi");
     }
 
     #[test]
-    fn write_plugin_source_errors_on_missing_plugin() {
+    fn write_widget_source_errors_on_missing_widget() {
         let dir = TempDir::new().unwrap();
         assert!(write_widget_source_in(dir.path(), "ghost", "content").is_err());
     }
 
     #[test]
-    fn create_plugin_writes_script_and_sidecar() {
+    fn create_widget_writes_script_and_sidecar() {
         let dir = TempDir::new().unwrap();
-        create_widget_in(dir.path(), "myplugin", "sh", "#!/bin/sh\necho hello").unwrap();
+        create_widget_in(dir.path(), "mywidget", "sh", "#!/bin/sh\necho hello").unwrap();
 
-        assert!(dir.path().join("myplugin.sh").exists());
-        assert!(dir.path().join("myplugin.toml").exists());
-        let toml = fs::read_to_string(dir.path().join("myplugin.toml")).unwrap();
-        assert!(toml.contains("myplugin"));
+        assert!(dir.path().join("mywidget.sh").exists());
+        assert!(dir.path().join("mywidget.toml").exists());
+        let toml = fs::read_to_string(dir.path().join("mywidget.toml")).unwrap();
+        assert!(toml.contains("mywidget"));
     }
 
     #[test]
-    fn create_plugin_rejects_duplicate() {
+    fn create_widget_rejects_duplicate() {
         let dir = TempDir::new().unwrap();
         create_widget_in(dir.path(), "dup", "sh", "").unwrap();
         assert!(create_widget_in(dir.path(), "dup", "sh", "").is_err());
     }
 
     #[test]
-    fn delete_plugin_removes_script_and_sidecar() {
+    fn delete_widget_removes_script_and_sidecar() {
         let dir = TempDir::new().unwrap();
         make_file(&dir, "gone.sh");
         make_file(&dir, "gone.toml");
@@ -829,7 +829,7 @@ has_compact = true
     }
 
     #[test]
-    fn delete_plugin_noop_on_missing() {
+    fn delete_widget_noop_on_missing() {
         let dir = TempDir::new().unwrap();
         // Must not error when nothing exists
         delete_widget_in(dir.path(), "ghost").unwrap();
@@ -838,19 +838,19 @@ has_compact = true
     // ---- write_widget_meta_in -----------------------------------------------
 
     #[test]
-    fn write_plugin_meta_roundtrips() {
+    fn write_widget_meta_roundtrips() {
         let dir = TempDir::new().unwrap();
         let meta = WidgetMeta {
-            name: "myplugin".to_string(),
+            name: "mywidget".to_string(),
             description: "does stuff".to_string(),
             components: vec!["a".to_string(), "b".to_string()],
             has_compact: true,
         };
-        write_widget_meta_in(dir.path(), "myplugin", &meta).unwrap();
+        write_widget_meta_in(dir.path(), "mywidget", &meta).unwrap();
 
         let metas = list_widget_metas_in(dir.path());
         // No script file exists, so list returns empty — verify TOML is parseable directly
-        let raw = fs::read_to_string(dir.path().join("myplugin.toml")).unwrap();
+        let raw = fs::read_to_string(dir.path().join("mywidget.toml")).unwrap();
         let table: toml::Table = raw.parse().unwrap();
         assert_eq!(table["description"].as_str().unwrap(), "does stuff");
         assert!(table["has_compact"].as_bool().unwrap());

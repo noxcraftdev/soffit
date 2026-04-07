@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, bail};
 
-use crate::{paths, plugin};
+use crate::{paths, widget};
 
 /// Returns (owner, repo, name_opt).
 fn parse_source(s: &str) -> anyhow::Result<(String, String, Option<String>)> {
@@ -114,7 +114,7 @@ pub(crate) fn install_one_in(
     }
 
     if already_exists && force {
-        plugin::delete_widget_in(dir, name)?;
+        widget::delete_widget_in(dir, name)?;
     }
 
     // Write script.
@@ -276,10 +276,10 @@ mod tests {
 
     #[test]
     fn parse_source_three_segments() {
-        let (owner, repo, name) = parse_source("alice/widgets/myplugin").unwrap();
+        let (owner, repo, name) = parse_source("alice/widgets/mywidget").unwrap();
         assert_eq!(owner, "alice");
         assert_eq!(repo, "widgets");
-        assert_eq!(name.as_deref(), Some("myplugin"));
+        assert_eq!(name.as_deref(), Some("mywidget"));
     }
 
     #[test]
@@ -310,7 +310,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         install_one_in(
             dir.path(),
-            "myplugin",
+            "mywidget",
             "sh",
             b"#!/bin/sh\necho hi",
             None,
@@ -318,10 +318,10 @@ mod tests {
         )
         .unwrap();
 
-        assert!(dir.path().join("myplugin.sh").exists());
-        assert!(dir.path().join("myplugin.toml").exists());
+        assert!(dir.path().join("mywidget.sh").exists());
+        assert!(dir.path().join("mywidget.toml").exists());
 
-        let content = std::fs::read_to_string(dir.path().join("myplugin.sh")).unwrap();
+        let content = std::fs::read_to_string(dir.path().join("mywidget.sh")).unwrap();
         assert_eq!(content, "#!/bin/sh\necho hi");
     }
 
@@ -337,7 +337,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         install_one_in(
             dir.path(),
-            "myplugin",
+            "mywidget",
             "sh",
             b"#!/bin/sh\necho v1",
             None,
@@ -346,7 +346,7 @@ mod tests {
         .unwrap();
         let err = install_one_in(
             dir.path(),
-            "myplugin",
+            "mywidget",
             "sh",
             b"#!/bin/sh\necho v2",
             None,
@@ -361,7 +361,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         install_one_in(
             dir.path(),
-            "myplugin",
+            "mywidget",
             "sh",
             b"#!/bin/sh\necho v1",
             None,
@@ -370,7 +370,7 @@ mod tests {
         .unwrap();
         install_one_in(
             dir.path(),
-            "myplugin",
+            "mywidget",
             "sh",
             b"#!/bin/sh\necho v2",
             None,
@@ -378,7 +378,7 @@ mod tests {
         )
         .unwrap();
 
-        let content = std::fs::read_to_string(dir.path().join("myplugin.sh")).unwrap();
+        let content = std::fs::read_to_string(dir.path().join("mywidget.sh")).unwrap();
         assert_eq!(content, "#!/bin/sh\necho v2");
     }
 }

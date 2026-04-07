@@ -73,7 +73,7 @@ pub fn apply(name: &str) -> Result<()> {
         .collect();
 
     for widget_name in &all_widgets {
-        if crate::plugin::widget_source_path(widget_name).is_none() {
+        if crate::widget::widget_source_path(widget_name).is_none() {
             let _ = crate::marketplace::resolve_and_install(widget_name, false);
         }
     }

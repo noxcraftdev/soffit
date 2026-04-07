@@ -7,7 +7,7 @@ mod http;
 mod install;
 mod marketplace;
 mod paths;
-mod plugin;
+mod widget;
 mod presets;
 mod render;
 mod setup;
@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<()> {
         #[cfg(feature = "desktop")]
         Cli::Edit => edit::run(),
         Cli::Widgets => {
-            for p in plugin::list_custom_widgets() {
+            for p in widget::list_custom_widgets() {
                 println!("{p}");
             }
             Ok(())
@@ -96,7 +96,7 @@ fn main() -> anyhow::Result<()> {
         Cli::FetchVersion => fetch_version(),
         Cli::RefreshCost { sid } => refresh_cost(&sid),
         Cli::Install { source, force } => install::run(&source, force),
-        Cli::Uninstall { name } => plugin::delete_widget(&name),
+        Cli::Uninstall { name } => widget::delete_widget(&name),
         Cli::Marketplace { cmd } => marketplace::run(cmd),
         Cli::Preset { cmd } => presets::run(cmd),
         Cli::Update => update::run(),
