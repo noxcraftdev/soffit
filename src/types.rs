@@ -97,10 +97,44 @@ pub struct StdinData {
     pub rate_limits: Option<RateLimits>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-#[serde(default)]
+#[derive(Debug, Serialize, Default, Clone)]
 pub struct ModelInfo {
     pub display_name: String,
+}
+
+impl<'de> Deserialize<'de> for ModelInfo {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ModelInfoVisitor;
+        impl<'de> serde::de::Visitor<'de> for ModelInfoVisitor {
+            type Value = ModelInfo;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "a string or an object with a display_name field")
+            }
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<ModelInfo, E> {
+                Ok(ModelInfo {
+                    display_name: v.to_string(),
+                })
+            }
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<ModelInfo, E> {
+                Ok(ModelInfo { display_name: v })
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<ModelInfo, A::Error> {
+                let mut display_name = String::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "display_name" {
+                        display_name = map.next_value()?;
+                    } else {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                    }
+                }
+                Ok(ModelInfo { display_name })
+            }
+        }
+        deserializer.deserialize_any(ModelInfoVisitor)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

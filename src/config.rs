@@ -35,7 +35,6 @@ impl Default for StatuslineConfig {
                 "context_bar".into(),
                 "quota".into(),
                 "duration".into(),
-                "cost".into(),
             ],
             line2: vec!["git".into()],
             line3: vec![],
@@ -218,31 +217,6 @@ impl StatuslineConfig {
             table.remove("editor_height");
         }
 
-        // Migrate legacy weekly_budget into cost widget settings
-        if let Some(budget) = table.remove("weekly_budget").and_then(|v| v.as_float()) {
-            let widgets = table
-                .entry("statusline_widgets")
-                .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-                .as_table_mut();
-            if let Some(widgets) = widgets {
-                let cost = widgets
-                    .entry("cost")
-                    .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-                    .as_table_mut();
-                if let Some(cost) = cost {
-                    let settings = cost
-                        .entry("settings")
-                        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-                        .as_table_mut();
-                    if let Some(settings) = settings {
-                        settings
-                            .entry("weekly_budget")
-                            .or_insert(toml::Value::Float(budget));
-                    }
-                }
-            }
-        }
-
         Ok(())
     }
 }
@@ -326,8 +300,7 @@ mod tests {
                 "version",
                 "context_bar",
                 "quota",
-                "duration",
-                "cost"
+                "duration"
             ]
         );
         assert_eq!(config.line2, vec!["git"]);
@@ -383,77 +356,6 @@ mod tests {
             !raw.contains("use_unicode_text"),
             "Default use_unicode_text=true should not be written: {raw}"
         );
-        Ok(())
-    }
-
-    #[test]
-    fn per_widget_colors_round_trip() -> Result<()> {
-        let mut f = NamedTempFile::new()?;
-        writeln!(
-            f,
-            "[statusline_widgets.cost]\ncompact = true\ncomponents = [\"session\"]\n\n[statusline_widgets.cost.theme]\nwithin_budget = 46\nover_budget = 196"
-        )?;
-        let config = load_from_path(f.path())?;
-        let cost_cfg = config.widgets.get("cost").expect("cost widget config");
-        assert!(cost_cfg.compact);
-        use crate::types::ThemeValue;
-        let colors = cost_cfg.theme.as_ref().expect("per-widget colors");
-        assert_eq!(colors.get("within_budget"), Some(&ThemeValue::Custom(46)));
-        assert_eq!(colors.get("over_budget"), Some(&ThemeValue::Custom(196)));
-        assert_eq!(colors.get("approaching"), None);
-        save_to_path(&config, f.path())?;
-        let reloaded = load_from_path(f.path())?;
-        let colors2 = reloaded
-            .widgets
-            .get("cost")
-            .and_then(|c| c.theme.as_ref())
-            .expect("per-widget colors after round-trip");
-        assert_eq!(colors2.get("within_budget"), Some(&ThemeValue::Custom(46)));
-        assert_eq!(colors2.get("over_budget"), Some(&ThemeValue::Custom(196)));
-        Ok(())
-    }
-
-    #[test]
-    fn per_widget_icons_round_trip() -> Result<()> {
-        let mut f = NamedTempFile::new()?;
-        writeln!(
-            f,
-            "[statusline_widgets.cost]\ncompact = false\n\n[statusline_widgets.cost.icons]\ncost = \"$$$\""
-        )?;
-        let config = load_from_path(f.path())?;
-        let icons = config
-            .widgets
-            .get("cost")
-            .and_then(|c| c.icons.as_ref())
-            .expect("per-widget icons");
-        assert_eq!(icons.get("cost").map(|s| s.as_str()), Some("$$$"));
-        save_to_path(&config, f.path())?;
-        let reloaded = load_from_path(f.path())?;
-        let icons2 = reloaded
-            .widgets
-            .get("cost")
-            .and_then(|c| c.icons.as_ref())
-            .expect("per-widget icons");
-        assert_eq!(icons2.get("cost").map(|s| s.as_str()), Some("$$$"));
-        Ok(())
-    }
-
-    #[test]
-    fn weekly_budget_migrated_to_cost_settings() -> Result<()> {
-        let mut f = NamedTempFile::new()?;
-        writeln!(f, "weekly_budget = 500.0\nstatusline_line1 = [\"cost\"]")?;
-        let config = load_from_path(f.path())?;
-        save_to_path(&config, f.path())?;
-        let raw = fs::read_to_string(f.path())?;
-        let table: toml::Table = toml::from_str(&raw)?;
-        assert!(
-            !table.contains_key("weekly_budget"),
-            "Legacy top-level weekly_budget should be removed"
-        );
-        let budget = table["statusline_widgets"]["cost"]["settings"]["weekly_budget"]
-            .as_float()
-            .expect("budget as float");
-        assert!((budget - 500.0).abs() < f64::EPSILON);
         Ok(())
     }
 

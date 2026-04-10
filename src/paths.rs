@@ -41,18 +41,6 @@ pub fn session_snapshot(sid: &str) -> String {
     format!("/tmp/soffit-session-{sid}.json")
 }
 
-pub fn cost_lock() -> &'static str {
-    "/tmp/soffit-cost-refresh.lock"
-}
-
-pub fn cost_daily() -> &'static str {
-    "/tmp/soffit-cost-daily"
-}
-
-pub fn cost_session(sid: &str) -> String {
-    format!("/tmp/soffit-cost-{sid}")
-}
-
 pub fn self_version_cache() -> &'static str {
     "/tmp/soffit-self-version"
 }

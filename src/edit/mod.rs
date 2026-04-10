@@ -4,12 +4,12 @@ use dioxus::desktop::{Config, LogicalSize, WindowBuilder};
 use dioxus::prelude::*;
 
 use crate::config::StatuslineConfig;
-use crate::widget;
 use crate::theme::{
     ansi_256_to_hex, BarStyle, PaletteRole, ThemePalette, CURATED_COLORS, PALETTE_ROLES,
     THEME_PRESETS,
 };
 use crate::types::ThemeValue;
+use crate::widget;
 
 // ---- entry point -----------------------------------------------------------
 

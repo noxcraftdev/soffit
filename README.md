@@ -13,7 +13,7 @@ Desktop editor with drag-and-drop, live preview, and a widget system for custom 
 
 ## Features
 
-- **9 built-in widgets**: context bar, cost, git, version, duration, vim mode, agent, quota, session
+- **8 built-in widgets**: context bar, git, version, duration, vim mode, agent, quota, session
 - **Configurable theme**: custom colors, icons, and bar styles via config or the desktop editor
 - **Desktop editor**: drag-and-drop widget ordering, live preview, per-widget component configuration
 - **Custom widgets**: create your own widgets as shell scripts or compiled binaries
@@ -83,16 +83,11 @@ soffit widget <name>   # Test a single widget
 Config lives at `~/.config/soffit/config.toml` (falls back to `~/.config/claude-statusline/config.toml`):
 
 ```toml
-statusline_line1 = ["vim", "agent", "version", "context_bar", "quota", "duration", "cost"]
+statusline_line1 = ["vim", "agent", "version", "context_bar", "quota", "duration"]
 statusline_line2 = ["git", "insights"]
 statusline_line3 = []
 
-cost_target_weekly = 300.0
 autocompact_pct = 100
-
-[statusline_widgets.cost]
-compact = false
-components = ["session", "today", "week"]
 ```
 
 ### Theme
@@ -118,9 +113,6 @@ Unset roles use the defaults.
 Override icons per widget under `[statusline_widgets.NAME.icons]`:
 
 ```toml
-[statusline_widgets.cost.icons]
-cost = "$ "          # instead of 💸
-
 [statusline_widgets.duration.icons]
 duration = "T "      # instead of ⏱
 

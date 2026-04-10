@@ -206,7 +206,6 @@ pub const CURATED_COLORS: &[u8] = &[
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct IconsConfig {
     pub duration: Option<String>,
-    pub cost: Option<String>,
     pub git_branch: Option<String>,
     pub git_staged: Option<String>,
     pub agent: Option<String>,
@@ -224,7 +223,6 @@ impl IconsConfig {
     pub fn set_string_field(&mut self, name: &str, value: Option<String>) {
         match name {
             "duration" => self.duration = value,
-            "cost" => self.cost = value,
             "git_branch" => self.git_branch = value,
             "git_staged" => self.git_staged = value,
             "agent" => self.agent = value,
@@ -439,8 +437,8 @@ mod tests {
     #[test]
     fn icons_config_get_set_fields() {
         let mut ic = IconsConfig::default();
-        ic.set_string_field("cost", Some("$$$".into()));
-        assert_eq!(ic.cost.as_deref(), Some("$$$"));
+        ic.set_string_field("duration", Some("⏱".into()));
+        assert_eq!(ic.duration.as_deref(), Some("⏱"));
         ic.set_char_field("bar_fill", Some('X'));
         assert_eq!(ic.bar_fill, Some('X'));
     }
