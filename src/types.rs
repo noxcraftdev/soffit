@@ -87,6 +87,7 @@ impl WidgetConfig {
 #[serde(default)]
 pub struct StdinData {
     pub session_id: Option<String>,
+    pub transcript_path: Option<String>,
     pub version: Option<String>,
     pub model: Option<ModelInfo>,
     pub context_window: Option<ContextWindow>,
